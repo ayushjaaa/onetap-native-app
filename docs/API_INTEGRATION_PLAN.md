@@ -1,0 +1,188 @@
+# API Integration Plan — Wiring the App to the Real Backend
+
+**Created:** 2026-07-05
+**Companion doc:** [API_INTEGRATION_PROGRESS.md](./API_INTEGRATION_PROGRESS.md) — tracks what's actually shipped against every phase below. Each phase here links to its tracker row; each tracker row links back to its phase. Update both in the same pass, same convention the backend repo uses for its `WORK_PLAN.md` / `ENDPOINTS_TALLY.md` pair.
+**Source of screen inventory:** every screen under `src/screens/` was read in full (not just skimmed) to find every stubbed data need, every `TODO` comment naming an intended endpoint, and every fake `setTimeout` standing in for a network call. Source of backend truth: `repos/onetap-backend/source/docs/API.md` (85 live endpoints as of 2026-07-05).
+
+**Method:** phases are ordered by backend readiness and dependency, not by screen importance. A screen with a perfect backend match but no native capability gap (e.g. `ListingDetailScreen`) comes before a screen blocked on a product decision (e.g. Aadhaar KYC), even if the latter feels more urgent.
+
+**Status legend:** ✅ backend ready, direct swap · 🔧 backend ready, needs new native capability first (image picker, etc.) · ⛔ blocked on a decision only you can make · ❌ backend doesn't support this yet (chat) — do not attempt
+
+---
+
+## Phase 0 — Decisions needed before wiring (read this first)
+
+Five places where the frontend's assumed UX doesn't match what the backend actually offers. Wiring the "obvious" endpoint in these spots will either 404 or produce a broken UX — each needs a call before code gets written.
+
+### DN1 — Forgot-password flow is phone-based in the UI, email-based on the backend ⛔
+`ForgotPasswordPhoneScreen → ForgotPasswordOtpScreen → ForgotPasswordResetScreen` collects a **phone number** and a 4-digit OTP (currently hardcoded `1234`, zero backend calls anywhere in the three screens). The backend's actual reset flow (`POST /auth/forgot-password` + `POST /auth/reset-password`) is **email + a reset token**, not phone/OTP — and it's not just a naming mismatch: a forgotten-password user has no bearer token yet, so the phone-OTP endpoints (`POST /auth/phone/send-otp` etc.) can't be reused here either — they require `authMiddleware` (an existing session).
+**Options:**
+- (a) Change the three screens to collect email instead of phone, matching the backend's real flow exactly (smallest backend surface, biggest UI change).
+- (b) Build a new unauthenticated phone-OTP-based password-reset endpoint on the backend (keeps the UI as-is, but is backend work, not just frontend wiring — out of scope for this plan alone).
+**Recommendation:** (a) — no backend work needed, and email-based reset is the more common pattern anyway. Needs your confirmation before Phase 9 starts.
+
+### DN2 — Aadhaar KYC is a two-step OTP UX; backend offers OAuth-redirect or instant-mock ⛔
+`AadhaarNumberScreen → AadhaarOtpScreen` is entirely local mock (hardcoded OTP `123456`, zero backend calls). This is the same open question as backend's **D6** (`docs/new/ENDPOINTS_TALLY.md`): the backend's real path is DigiLocker OAuth-redirect (`GET /auth/kyc/digilocker/initiate` → browser consent screen → `GET /auth/kyc/digilocker/callback`), completely different from a two-textbox OTP screen. There's also a third option already live: `POST /auth/kyc/mock-verify` (dev-only, `MOCK_KYC=true`) which verifies **instantly with no OTP step at all** given just an Aadhaar number.
+**Options:**
+- (a) Wire `AadhaarNumberScreen`'s "Send OTP" button to call `mock-verify` directly and skip `AadhaarOtpScreen` entirely for now (dev-only, but unblocks the rest of the seller-onboarding flow immediately without waiting on D6).
+- (b) Wait for D6 to resolve, then build whichever real UX product picks.
+**Recommendation:** (a) as an interim so Phase 2 (seller onboarding) isn't blocked, clearly labeled dev-only in code, revisited once D6 resolves. Needs your confirmation.
+
+### DN3 — No image-picker library installed ⛔
+Both `IndividualOnboardingScreen` (profile photo) and `ListAProductScreen` (listing photos) need to let the user pick/take a photo. **No image-picker dependency exists in `package.json` at all** — this isn't an API-wiring gap, it's a missing native capability. The backend side is fully ready either way (`GET /auth/avatar/upload-token` + `POST /auth/avatar`; `GET /marketplace/listings/upload-token`, both signed-Cloudinary-upload patterns).
+**Needs a library choice** (e.g. `react-native-image-picker` — camera + gallery, most common choice; or `expo-image-picker` if the project ever adopts Expo modules, unlikely given this is a bare RN project). **Recommendation:** `react-native-image-picker`. Needs your confirmation before Phase 3.
+
+### DN4 — `useGoogleSignInMutation` calls a route that doesn't exist ⛔ (pre-existing, not introduced by this plan)
+`authApi.ts` already has a real-looking `googleSignIn` mutation calling `POST /auth/google` — **no such route exists on the backend** (Google is only wired as a better-auth *social provider* under a different path). This was already known and documented in the backend's own `docs/API.md` ("❌ dead call — will 404 if invoked"). The button is currently commented out in both `WelcomeScreen` and `LoginScreen` due to an unrelated Android SHA-1/package mismatch, so this isn't blocking anything today.
+**Recommendation:** leave as-is, out of scope for this plan. Flag if Google Sign-In becomes a priority — it needs backend work (wiring better-auth's actual social-provider flow into a client-callable endpoint), not frontend wiring.
+
+### DN5 — Chat cannot be wired at all yet ❌
+Confirmed elsewhere this session: `chat-service` is 100% unbuilt on the backend (Socket.io scaffold that only logs connect/disconnect — no rooms, no message persistence, no REST routes). This is backend Phase 5, **deferred** pending a prebuilt-vs-custom decision (see backend `docs/new/WORK_PLAN.md`). `ChatListScreen` and `ChatConversationScreen` stay on `src/data/chatStub.ts` until that decision lands and the service is built. **Do not start any chat wiring work.**
+
+---
+
+## Phase 1 — Real phone OTP (auth flow, foundation)
+
+**Backend readiness:** ✅ fully live (`POST /auth/phone/send-otp`, `/verify-otp`, `/resend-otp`, all built and verified this session, including the `EXPOSE_OTP_IN_RESPONSE` dev flag for testing without SMS).
+
+By the time `PhoneScreen`/`OtpScreen` run, the user already has a bearer token (login happens first in the current flow — `LoginScreen` calls the real `login()`, then navigates to `PhoneScreen` with `{ user, token }` already in hand). This is exactly what `authMiddleware`-gated phone-OTP endpoints need — no auth mismatch here, unlike DN1.
+
+| Screen | Current state | Change |
+|---|---|---|
+| `src/api/authApi.ts` | `sendOtp`/`verifyOtp` are pure client mocks gated by `env.USE_MOCK_OTP`, checking against a hardcoded `MOCK_OTP` constant | Replace `queryFn` mocks with real `query` calls to `POST /auth/phone/send-otp` / `/verify-otp` / `/resend-otp`. Keep `env.USE_MOCK_OTP` as a dev fallback switch (matches the existing "swap one flag" design already documented in `AUTH_REQUIREMENTS.md` §19) |
+| `PhoneScreen.tsx` | Calls `useSendOtpMutation` (mock) | No change needed beyond the mock swap above — already calls the right hook shape |
+| `OtpScreen.tsx` | Calls `useVerifyOtpMutation` (mock, comment literally says "mock — checks against 1234") + `useUpdateProfileMutation` (already real) | Same — hook call sites don't change, only what's behind them |
+
+**Payload/response shape changes to handle:** real `send-otp`/`resend-otp` return `{ expiresInSeconds, code? }` (code only in dev), not the mock's `{ success, message }`. Real `verify-otp` returns `{ phoneVerified: true }`, not `{ success, verified, message }`. `SendOtpResponse`/`VerifyOtpResponse` types in `src/types/auth.types.ts` need updating to match.
+
+**Not in scope for this phase:** forgot-password OTP (DN1) — different flow, different backend endpoints, blocked on a decision.
+
+---
+
+## Phase 2 — Seller onboarding (backend ready, screens are 100% `setTimeout` stubs)
+
+**Backend readiness:** ✅ fully live and verified end-to-end this session (`PATCH /auth/me/seller`, `POST /auth/seller/individual`).
+
+| Screen | Current state | Change |
+|---|---|---|
+| `SellerTypeScreen.tsx` | `handleContinue` fakes a 500ms delay; comment: `// TODO: real PATCH /me { sellerType: 'individual' } once backend ships.` | Add a `setSellerType` mutation to `userApi.ts` → `PATCH /auth/me/seller`, payload `{ sellerType: 'individual' }`. Note the real endpoint path is `/auth/me/seller`, not `/me` as the TODO comment assumed |
+| `IndividualOnboardingScreen.tsx` (text fields only — photo is Phase 3) | `handleSubmit` fakes a 700ms delay; comment: `// TODO: real POST /seller/individual { displayName, bio, photoUrl, categories }` | Add a `submitIndividualProfile` mutation to `userApi.ts` → `POST /auth/seller/individual`, payload `{ displayName, bio?, photoUrl?, categories? }` — matches the TODO's assumed shape almost exactly. **Must run after `SellerTypeScreen`'s call succeeds** — the backend 422s `POST /seller/individual` if `sellerType` isn't set yet, so this ordering is now a hard API contract, not just a UI flow choice |
+| `IndividualOnboardingScreen.tsx`'s `SUGGESTED_CATEGORIES` | Hardcoded 10-string array, comment: "Stub list — replace with backend categories once /categories/top ships" | `/categories/top` **is live now** (see Phase 4) — swap this specific list too while touching this screen, even though the rest of Phase 4 handles the broader category-stub cleanup |
+| `BecomeSellerIntroScreen.tsx` | Reads `user.aadhaarVerified`/`user.isSellerApproved` from Redux | No API change — but verify `GET /auth/me`'s real response actually populates fields the frontend's `User` type expects here (see the cross-cutting note on `User` type drift, end of this doc) |
+
+**Photo upload** for `IndividualOnboardingScreen` is deliberately excluded from this phase — see Phase 3.
+
+---
+
+## Phase 3 — Image upload infrastructure (new native capability)
+
+**Backend readiness:** ✅ both signed-upload endpoints are live (`GET /auth/avatar/upload-token` + `POST /auth/avatar`; `GET /marketplace/listings/upload-token`). **Blocked on DN3** (picker library choice) before any code here.
+
+Once DN3 is resolved:
+1. Install the chosen picker library, native-link it (pod install for iOS).
+2. Build one shared helper (e.g. `src/services/imageUpload.ts`) implementing the two-step Cloudinary flow once: call the relevant `upload-token` endpoint → `PUT`/`POST` the picked file directly to Cloudinary using the signed params → get back a `secure_url`. Both avatar and listing photos use the *same* signed-upload pattern, just different token endpoints and folders — one helper, parameterized by which token endpoint to call.
+3. Wire `IndividualOnboardingScreen`'s `handlePhotoPress` (currently a stub toast, `// TODO: integrate image picker`) to the picker + helper, then pass the resulting URL as `photoUrl` in Phase 2's `submitIndividualProfile` call.
+4. Wire `ListAProductScreen`'s `handleAddPhoto` (currently pushes a fake colour swatch, comment: "STUB: when the real image picker integrates...") to the same helper, feeding `photos: string[]` into Phase 5's `createListing` call.
+
+---
+
+## Phase 4 — Categories (backend ready, currently duplicated 3+ ways on the client)
+
+**Backend readiness:** ✅ `GET /marketplace/categories` was purpose-built to mirror `src/data/categoryTree.ts`'s `STUB_CATEGORY_TREE` shape exactly — the backend doc says so explicitly: *"matches the shape of the client's local STUB_CATEGORY_TREE... so the app can swap its stub import for this endpoint with no other code changes."* `GET /categories/top` mirrors nothing client-side yet but is the flat 12-item list for chip-style pickers.
+
+This is the highest-value, lowest-risk phase — a near drop-in swap, and it fixes a real bug: **the client currently has four different, inconsistent hardcoded category lists** that should be one source of truth:
+- `src/data/categoryTree.ts` — `STUB_CATEGORY_TREE` (the "real" one, unused by any screen!)
+- `HomeScreen.tsx` — its own inline `STUB_CATEGORIES` (9 items, different names/order)
+- `CategoryListScreen.tsx` — its own inline `STUB_CATEGORIES` (11 items)
+- `CategoryBrowseScreen.tsx` — its own inline `STUB_SUBCATEGORIES` (generic "Smartphones/Tablets/Accessories/Wearables" regardless of category — doesn't even vary by which category was tapped)
+
+**Change:** add `categoriesApi.ts` (or fold into `productsApi.ts`) with `getCategoryTree` (`GET /marketplace/categories`) and `getTopCategories` (`GET /marketplace/categories/top`). Point all four call sites above at these two queries instead of their local arrays. `CategoryBrowseScreen`'s subcategories become real per-category children instead of a static placeholder — this is a genuine bug fix, not just a stub replacement.
+
+---
+
+## Phase 5 — Marketplace core (backend fully built, screens fully stub)
+
+**Backend readiness:** ✅ this is the biggest phase — every listing/interest/transaction endpoint needed already exists and was live before this session even started.
+
+| Screen | Backend endpoint(s) | Notes |
+|---|---|---|
+| `HomeScreen.tsx` (live listings section) | `GET /marketplace/listings/feed?lat=&lng=` | Needs the user's current location — already available from `locationSlice` (real, wired). Replaces `STUB_LIVE_LISTINGS` |
+| `CategoryBrowseScreen.tsx` / `CategoryItemsScreen.tsx` (feed) | `GET /marketplace/listings/feed?...&category=` | Same feed endpoint, filtered. The `// TODO: re-run the listings query with the new filters once feed API ships` comment in `CategoryBrowseScreen` is this exact endpoint |
+| `SearchScreen.tsx` (results) | `GET /marketplace/listings/search?q=` + `GET /marketplace/listings/search/autocomplete?q=` | Replaces the client-side substring filter over `STUB_LIVE_LISTINGS` (which has a bug: falls back to showing *all* stub listings when nothing matches — a real search endpoint naturally returns an empty result set instead) |
+| `SearchScreen.tsx` (trending) | *(not built — see backend `WORK_PLAN.md` item 6.3)* | `STUB_TRENDING` stays a stub until backend ships trending; it's now unblocked on the data side (search-query logging shipped this session) but the aggregation endpoint itself doesn't exist yet |
+| `ListingDetailScreen.tsx` (fetch) | `GET /marketplace/listings/:id` | Direct match for the screen's own TODO: `// TODO: replace with useGetListingQuery(listingId)` |
+| `ListingDetailScreen.tsx` (express interest) | `POST /marketplace/listings/:id/interest` | Direct match for the screen's own TODO (idempotency note in the TODO is already handled server-side — the backend's unique `(listingId, buyerId)` index makes a duplicate `POST` a 409, not a duplicate row) |
+| `ListingDetailScreen.tsx` (favorite toggle) | `POST` / `DELETE /marketplace/listings/:id/favorite` | Currently a local `useState` with no backend call at all |
+| `ListingDetailScreen.tsx` (seller: sell to buyer) | `POST /marketplace/interests/:id/select` | Needs the specific `interestId` of the buyer being selected, not just their `buyerId` — the screen's `interestedBuyers` data will need to carry the interest id once sourced from `GET /marketplace/interests/received` instead of the stub |
+| `ListingDetailScreen.tsx` (seller: remove listing) | `DELETE /marketplace/listings/:id` | Same endpoint `MyAdsScreen` needs — good candidate for one shared mutation reused by both screens |
+| `MyAdsScreen.tsx` (list mine) | `GET /marketplace/listings/mine` | Also returns `summary: { total, active, postSlots, slotsUsed, slotsRemaining }` — this is the real source for `STUB_SLOTS_AVAILABLE` used here, in `ListAProductScreen`, and in `ProductWalletScreen` |
+| `MyAdsScreen.tsx` (remove) | `DELETE /marketplace/listings/:id` | Matches the screen's own comment: "Real backend call ships when DELETE /listings/:id lands" |
+| `ListAProductScreen.tsx` (create) | `POST /marketplace/listings` | Direct match for the screen's own TODO. Payload is `{ title, description, price, category, condition, lat, lng, photos?, address? }` — the field is named `price` not `priceInPaise`, but it **is** paise under the hood (`Listing.ts` model comment: `price: number; // in paise (integer)`), matching the stub data's convention exactly. No unit conversion needed, just a field-name rename at the call site |
+| `BuyerPurchaseHistoryScreen.tsx` | `GET /marketplace/interests/mine` + `GET /marketplace/transactions/mine?role=buyer` | The screen's own file-header comment already names the intended source almost exactly (`GET /me/interests` vs actual `GET /marketplace/interests/mine`) — the "won/lost/pending" status needs deriving client-side from interest `status` + presence in the transactions list, since the backend doesn't return one combined status field |
+| `SellerSalesHistoryScreen.tsx` | `GET /marketplace/transactions/mine?role=seller` | Replaces the client-side filter over `STUB_LISTINGS` for `status === 'sold'` |
+| `SellerSalesHistoryScreen.tsx` (view receipt) | `GET /wallet/transactions/:id/receipt` | Screen currently just shows a toast (comment: "receipt detail screen / sheet in v1.5") — needs a `referenceId` linking a transaction to its wallet receipt, which may not exist yet since marketplace `Transaction` and wallet `WalletTransaction` are separate models in separate services with no documented cross-link today. **Flag as a possible gap** — confirm a transaction actually has a traceable wallet receipt before promising this in the UI; may need to stay a "v1.5" stub if the link doesn't exist |
+
+**New screen needed, not blocked on anything:** `GET /marketplace/me/favorites` has no corresponding screen in the app's navigation at all today. Building a "My Favorites" screen is optional scope — flagged here so it isn't silently dropped, not because it's required for this plan.
+
+---
+
+## Phase 6 — Wallet & packages (backend fully built, screens fully stub)
+
+**Backend readiness:** ✅ live, including the real Razorpay Checkout handoff pattern (`initiate` → client-side Checkout SDK → `verify`) and a mock path for local dev (`MOCK_PAYMENTS=true`).
+
+| Screen | Backend endpoint(s) | Notes — **read this before wiring** |
+|---|---|---|
+| `PackageSelectionScreen.tsx` | `GET /wallet/packages` | **Catalog mismatch:** the frontend's stub catalog (`src/data/packagesCatalog.ts`: `starter`/`pro`/`business`, 1/5/15 slots, ₹49/₹199/₹499) does **not** match the backend's real hardcoded catalog (`pkg-basic`/`pkg-standard`/`pkg-pro`, 3/10/30 slots, ₹49/₹149/₹399). This isn't a wiring bug to fix in code — it's a **content mismatch** the UI needs to accept whatever the backend returns (ids, names, slot counts, prices) rather than assuming the stub's values. No hardcoded `packageId` string should survive in the UI layer after this phase |
+| `PackageSelectionScreen.tsx` (existing slots banner) | `GET /marketplace/listings/mine`'s `summary.slotsRemaining` (see Phase 5) | Replaces the hardcoded `const existingSlots = 0;` |
+| `PackageSelectionScreen.tsx` (buy) | `POST /wallet/packages/purchase/initiate` (real Razorpay) or `POST /wallet/packages/purchase` (mock, `MOCK_PAYMENTS=true`, dev only) | `initiate` returns `{ razorpayOrderId, amount, currency, keyId, package }` to hand to the Razorpay Checkout SDK — **the SDK itself isn't in `package.json` yet either**, same category of gap as DN3 for image picking. Flag as a sub-decision within this phase: install `react-native-razorpay` (or equivalent) before this screen can do a real payment, vs. shipping only the `MOCK_PAYMENTS` path for now and deferring real payments |
+| `PaymentResultScreen.tsx` | `POST /wallet/payments/verify` | Direct replacement for the fixed 1500ms fake-success delay. Payload `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` comes from the Checkout SDK's callback — same Razorpay-SDK dependency as above |
+| `ProductWalletScreen.tsx` (active packages + ledger) | `GET /wallet/transactions?limit=&skip=` | Backend's wallet doesn't track "active packages" as a separate concept from `postSlots`/`postCredits` — `STUB_ACTIVE`'s per-package expiry (`validTillIso`) has **no backend equivalent**; post-credit packages don't expire server-side today. This UI section may need to be simplified/removed rather than wired, or expiry needs to become a real backend feature first — flag as a decision, don't silently drop the mismatch |
+| `ProductWalletScreen.tsx` (used slots) | `GET /marketplace/listings/mine`'s `summary` | Same source as `MyAdsScreen`/`ListAProductScreen` |
+
+---
+
+## Phase 7 — Notifications (backend fully built, screen fully stub)
+
+**Backend readiness:** ✅ live, notifications are created automatically by backend event consumers — nothing to trigger client-side beyond reading/marking them.
+
+| Screen | Backend endpoint(s) |
+|---|---|
+| `NotificationCenterScreen.tsx` (feed) | `GET /notification?limit=&skip=` |
+| `NotificationCenterScreen.tsx` (mark one read) | `PATCH /notification/:id/read` |
+| `NotificationCenterScreen.tsx` (mark all read) | `PATCH /notification/mark-all-read` |
+| Bell icon unread dot (`HomeScreen.tsx` and anywhere else it appears) | `GET /notification/unread-count` | Currently always rendered with no real count behind it anywhere in the app |
+
+Direct swap — the stub's `NotificationType` enum values (`purchase_won`, `chat_message`, etc.) don't exist on the backend's `Notification` model (`type` is a free-form string tied to the event that created it); deep-link routing logic keyed off `type` will need to switch on the backend's actual event-derived types instead (`kyc.approved`, `transaction.completed`, etc. — see backend `docs/API.md`'s domain events table for the full list of what can generate a notification).
+
+---
+
+## Phase 8 — Aadhaar KYC (⛔ blocked on DN2)
+
+Do not start until DN2 is resolved. Once it is:
+- **If DN2(a) (mock-verify interim):** wire `AadhaarNumberScreen`'s submit directly to `POST /auth/kyc/mock-verify` (payload `{ aadhaarNumber }`), skip `AadhaarOtpScreen` in the navigation flow for now (or repurpose it as a loading/confirmation screen instead of an OTP-entry screen).
+- **If DN2(b) (wait for D6):** re-scope this phase once product picks OAuth-redirect vs. a real Aadhaar-OTP vendor — the UI work differs substantially between those two outcomes (a WebView/browser handoff vs. keeping the current two-textbox screens).
+
+---
+
+## Phase 9 — Forgot password (⛔ blocked on DN1)
+
+Do not start until DN1 is resolved. If DN1(a) is chosen (recommended): redesign `ForgotPasswordPhoneScreen` to collect email instead of phone, wire it to `POST /auth/forgot-password`; `ForgotPasswordOtpScreen` is replaced by a "check your email for a reset link/token" screen (the backend's flow is token-based, not OTP-based — there's no code to "enter," just a token, likely delivered via a deep link once email sending exists, or manually pasted in dev since `USE_MOCK_OTP=true` currently just logs it server-side rather than emailing it); `ForgotPasswordResetScreen` wires to `POST /auth/reset-password` with `{ token, newPassword }`.
+
+---
+
+## Phase 10 — Chat (❌ not started, do not attempt)
+
+Blocked entirely on backend Phase 5. See DN5. Nothing native-side to do until the backend service exists and its shape is known — building a UI integration against a service that doesn't exist yet would just need to be redone.
+
+---
+
+## Cross-cutting notes (apply across every phase)
+
+### `User` type drift
+`src/types/auth.types.ts`'s `User` interface has fields the real `/auth/me` response doesn't return in the same shape: `aadhaarVerified` (real field is `kycStatus: 'pending'|'verified'|'rejected'`, not a boolean), `isSellerApproved` (no such field exists — the closest real concept is `sellerType` being set, or `sellerStatus.isActive`), `role` (removed from the login/me response per the backend's own docs — "role removed — roles are managed by auth_user_roles"). `postAdRouter.ts`'s routing logic depends on `isSellerApproved`/`aadhaarVerified` being accurate — **this needs reconciling before or during Phase 2**, otherwise the "Post an Ad" button routes to the wrong screen for real users. Recommend deriving `isSellerApproved` client-side as `!!user.sellerType` and `aadhaarVerified` as `user.kycStatus === 'verified'` rather than expecting the backend to add new fields.
+
+### No RTK Query hooks exist outside `authApi.ts`
+Every screen inventoried in Phases 2–9 currently uses plain `useState` + stub data — none of them import any RTK Query hook. This means each phase isn't just "swap the data source," it's the first real RTK Query wiring for that domain. Build one API file per backend service the same way `authApi.ts` already does it (`productsApi.ts` → marketplace-service, `walletApi.ts` → wallet-service, a new `notificationApi.ts` → notification-service, extend `userApi.ts` → the auth-service seller/account endpoints), rather than one giant file.
+
+### Price units are paise everywhere, including listings
+Confirmed by reading `Listing.ts` directly (not just the API doc, which doesn't spell out units): wallet amounts (`biddingBalance`, package prices) **and** marketplace `Listing.price` are both paise-denominated integers. This matches every stub file's `priceInPaise` convention exactly — no unit conversion needed anywhere in Phases 5–6, just field-name alignment (`price` on the wire, display as `priceInPaise` client-side or rename consistently, your call).
