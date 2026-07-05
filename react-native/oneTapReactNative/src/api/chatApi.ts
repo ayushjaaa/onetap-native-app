@@ -1,0 +1,1 @@
+// Endpoints: getChatRooms, getMessages, sendMessage

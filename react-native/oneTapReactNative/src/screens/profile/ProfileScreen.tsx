@@ -1,0 +1,364 @@
+import React from 'react';
+import {
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  ChevronRight,
+  IndianRupee,
+  KeyRound,
+  Lock,
+  LogOut,
+  MapPin,
+  MessageCircle,
+  Package,
+  ShoppingBag,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react-native';
+import { useAppDispatch } from '@/hooks/useAppDispatch';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import { useToast } from '@/hooks/useToast';
+import { logout } from '@/store/authSlice';
+import { secureStorage } from '@/services/secureStorage';
+import { googleAuth } from '@/services/googleAuth';
+import { colors, layout, radius, spacing, typography } from '@/theme';
+import type { MainStackParamList } from '@/types/navigation.types';
+
+type Nav = NativeStackNavigationProp<MainStackParamList>;
+
+interface RowProps {
+  Icon: LucideIcon;
+  label: string;
+  value?: string;
+  onPress?: () => void;
+  destructive?: boolean;
+}
+
+const Row: React.FC<RowProps> = ({
+  Icon,
+  label,
+  value,
+  onPress,
+  destructive,
+}) => {
+  const iconColor = destructive ? colors.error : colors.textPrimary;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && onPress && styles.rowPressed,
+      ]}
+    >
+      <View style={styles.rowIconWrap}>
+        <Icon size={layout.iconSize.md} color={iconColor} />
+      </View>
+      <View style={styles.rowText}>
+        <Text style={[styles.rowLabel, destructive && styles.destructive]}>
+          {label}
+        </Text>
+        {value ? <Text style={styles.rowValue}>{value}</Text> : null}
+      </View>
+      {onPress && !destructive ? (
+        <ChevronRight size={layout.iconSize.md} color={colors.textMuted} />
+      ) : null}
+    </Pressable>
+  );
+};
+
+export const ProfileScreen: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const navigation = useNavigation<Nav>();
+  const toast = useToast();
+  const user = useAppSelector(state => state.auth.user);
+  const location = useAppSelector(state => state.location);
+
+  const handleLogout = () => {
+    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: async () => {
+          // Clear Google session so picker reappears next time (no-op for
+          // manual login users — googleAuth.signOut swallows errors).
+          await googleAuth.signOut();
+          await secureStorage.clearToken();
+          dispatch(logout());
+        },
+      },
+    ]);
+  };
+
+  const handleChangePassword = () => {
+    toast.info({
+      title: 'Coming soon',
+      message: 'Change password will be available in v2.',
+    });
+  };
+
+  const handleForgotPassword = () => {
+    navigation.navigate('ForgotPasswordPhone');
+  };
+
+  const handleUpdateLocation = () => {
+    toast.info({
+      title: 'Coming soon',
+      message: 'Manual location update will be available shortly.',
+    });
+  };
+
+  // Seller-row visibility:
+  //   - active seller         → show wallet + sales rows
+  //   - aadhaar-verified only → show wallet + sales rows AND a resume row
+  //                             that drops them into Package Selection so
+  //                             they can finish setup
+  //   - neither               → don't render the section at all
+  const showSellerSection =
+    Boolean(user?.isSellerApproved) || Boolean(user?.aadhaarVerified);
+  const showFinishSellerSetup =
+    Boolean(user?.aadhaarVerified) && !user?.isSellerApproved;
+
+  const handleProductWallet = () => navigation.navigate('ProductWallet');
+  const handleSalesHistory = () => navigation.navigate('SalesHistory');
+  const handleFinishSellerSetup = () =>
+    navigation.navigate('PackageSelection');
+  const handlePurchaseHistory = () => navigation.navigate('PurchaseHistory');
+  const handleMessages = () => navigation.navigate('ChatList');
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={styles.profileHeader}>
+          <View style={styles.avatar}>
+            <Image
+              source={require('@/assets/icons/img.png')}
+              style={styles.avatarImg}
+            />
+          </View>
+          <Text style={styles.name}>{user?.name ?? 'User'}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+          {user?.phone ? <Text style={styles.phone}>{user.phone}</Text> : null}
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>
+              {user?.role?.toUpperCase() ?? 'USER'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Seller section — only renders for sellers (incl. mid-onboarding) */}
+        {showSellerSection ? (
+          <>
+            <Text style={styles.sectionTitle}>Seller</Text>
+            <View style={styles.card}>
+              <Row
+                Icon={Package}
+                label="Product Wallet"
+                value="Slots, packages, activity"
+                onPress={handleProductWallet}
+              />
+              <View style={styles.divider} />
+              <Row
+                Icon={IndianRupee}
+                label="My Sales"
+                value="Completed transactions"
+                onPress={handleSalesHistory}
+              />
+              {showFinishSellerSetup ? (
+                <>
+                  <View style={styles.divider} />
+                  <Row
+                    Icon={Zap}
+                    label="Finish seller setup"
+                    value="Pick a package to start posting"
+                    onPress={handleFinishSellerSetup}
+                  />
+                </>
+              ) : null}
+            </View>
+          </>
+        ) : null}
+
+        {/* Activity section — always shown (every user can buy) */}
+        <Text style={styles.sectionTitle}>Activity</Text>
+        <View style={styles.card}>
+          <Row
+            Icon={ShoppingBag}
+            label="My Purchases"
+            value="Items you've shown interest in"
+            onPress={handlePurchaseHistory}
+          />
+          <View style={styles.divider} />
+          <Row
+            Icon={MessageCircle}
+            label="Messages"
+            value="Buyer + seller conversations"
+            onPress={handleMessages}
+          />
+        </View>
+
+        {/* Account section */}
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.card}>
+          <Row
+            Icon={Lock}
+            label="Change password"
+            onPress={handleChangePassword}
+          />
+          <View style={styles.divider} />
+          <Row
+            Icon={KeyRound}
+            label="Forgot password"
+            onPress={handleForgotPassword}
+          />
+        </View>
+
+        {/* Location */}
+        <Text style={styles.sectionTitle}>Location</Text>
+        <View style={styles.card}>
+          <Row
+            Icon={MapPin}
+            label={location.city ?? 'Not set'}
+            value={location.state ?? undefined}
+            onPress={handleUpdateLocation}
+          />
+        </View>
+
+        {/* Sign out */}
+        <View style={[styles.card, styles.cardSpaced]}>
+          <Row Icon={LogOut} label="Sign out" onPress={handleLogout} destructive />
+        </View>
+
+        <Text style={styles.version}>v1.0.0 · OneTap365</Text>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  content: {
+    padding: spacing.lg,
+    paddingBottom: spacing['3xl'],
+  },
+  profileHeader: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+  },
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    overflow: 'hidden',
+    backgroundColor: colors.card,
+    marginBottom: spacing.base,
+  },
+  avatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  name: {
+    ...typography.h2,
+    color: colors.textPrimary,
+  },
+  email: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  phone: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+  },
+  roleBadge: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(43, 179, 42, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(43, 179, 42, 0.4)',
+  },
+  roleText: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  sectionTitle: {
+    ...typography.label,
+    color: colors.textMuted,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  cardSpaced: {
+    marginTop: spacing.xl,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.base,
+    paddingHorizontal: spacing.lg,
+  },
+  rowPressed: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  rowIconWrap: {
+    width: layout.iconSize.base,
+    height: layout.iconSize.base,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.base,
+  },
+  rowText: {
+    flex: 1,
+  },
+  rowLabel: {
+    ...typography.bodyBold,
+    color: colors.textPrimary,
+  },
+  rowValue: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  destructive: {
+    color: colors.error,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginLeft: spacing.lg + layout.iconSize.base + spacing.base,
+  },
+  version: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+  },
+});
