@@ -303,6 +303,7 @@ export const ListAProductScreen: React.FC = () => {
                 return (
                   <Pressable
                     key={i}
+                    testID="add-photo-tile"
                     onPress={handleAddPhoto}
                     style={({ pressed }) => [
                       styles.photoTile,
