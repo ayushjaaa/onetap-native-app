@@ -24,6 +24,7 @@ import { useAppSelector } from '@/hooks/useAppSelector';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { useGetTopCategoriesQuery } from '@/api/categoriesApi';
 import { useGetFeedQuery } from '@/api/productsApi';
+import { useGetUnreadCountQuery } from '@/api/notificationApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import type { CategoryNode, Listing } from '@/types';
 import { formatRelativeShort } from '@/data/listingsStub';
@@ -78,6 +79,10 @@ export const HomeScreen: React.FC = () => {
     isLoading: categoriesLoading,
     error: categoriesError,
   } = useGetTopCategoriesQuery();
+
+  const { data: unreadData } = useGetUnreadCountQuery();
+  const unreadCount = unreadData?.count ?? 0;
+  const unreadBadgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   console.log('[HomeScreen] top categories response:', topCategories);
   console.log('[HomeScreen] top categories error:', categoriesError);
@@ -164,7 +169,11 @@ export const HomeScreen: React.FC = () => {
             accessibilityLabel="Open notifications"
           >
             <Bell size={layout.iconSize.md} color={colors.textPrimary} />
-            <View style={styles.bellDot} />
+            {unreadCount > 0 ? (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{unreadBadgeLabel}</Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
 
@@ -333,16 +342,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bellDot: {
+  bellBadge: {
     position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    width: spacing.sm,
-    height: spacing.sm,
-    borderRadius: spacing.sm / 2,
+    top: -spacing.xs,
+    right: -spacing.xs,
+    minWidth: spacing.lg,
+    height: spacing.lg,
+    borderRadius: spacing.lg / 2,
+    paddingHorizontal: spacing.xs / 2,
     backgroundColor: colors.error,
     borderWidth: 1.5,
     borderColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: {
+    ...typography.caption,
+    fontSize: fontSize.xs,
+    lineHeight: fontSize.xs,
+    color: colors.white,
+    fontWeight: '700',
   },
   welcome: {
     marginTop: spacing.xl,

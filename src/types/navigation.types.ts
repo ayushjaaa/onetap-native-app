@@ -1,6 +1,8 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { User } from './auth.types';
 import type { Listing } from './product.types';
+import type { Notification } from './notification.types';
 
 export type AuthStackParamList = {
   Welcome: undefined;
@@ -55,7 +57,7 @@ export interface ListingRef {
 export type ComingSoonFeatureKey = 'service' | 'bid' | 'sip';
 
 export type MainStackParamList = {
-  Tabs: undefined;
+  Tabs: NavigatorScreenParams<MainTabParamList> | undefined;
   CategoryList: undefined;
   CategoryBrowse: { category: CategoryRef };
   CategoryItems: { category: CategoryRef; subcategoryId?: string };
@@ -84,6 +86,10 @@ export type MainStackParamList = {
   PurchaseHistory: undefined;
   SalesHistory: undefined;
   Notifications: undefined;
+  // `notification` is passed straight from NotificationCenterScreen's already
+  // -fetched list, avoiding a re-fetch by id (there's no GET /notification/:id
+  // endpoint on the backend — only list + unread-count + mark-read).
+  NotificationDetail: { notificationId: string; notification: Notification };
   ForgotPasswordPhone: undefined;
   ForgotPasswordOtp: { phone: string };
   ForgotPasswordReset: { phone: string };

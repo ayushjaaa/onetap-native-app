@@ -33,6 +33,7 @@ import {
 } from '@/components/marketplace';
 import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
 import { useCreateListingMutation } from '@/api/productsApi';
+import { useGetWalletQuery } from '@/api/walletApi';
 import { mapApiError } from '@/utils/errorMapper';
 import type { ListingCondition } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
@@ -71,12 +72,6 @@ const CONDITION_TO_BACKEND: Record<Condition, ListingCondition> = {
 const PHOTO_MAX = 8;
 const TITLE_MAX = 100;
 const DESC_MAX = 2000;
-
-// Stub: pretend the user has 3 slots free. Real value will come from the
-// wallet endpoint (sum of active package slots minus pending+live count).
-// Typed as `number` so the screen's "1 slot vs N slots" pluralization
-// comparison isn't narrowed away by TS literal inference.
-const STUB_SLOTS_AVAILABLE: number = 3;
 
 // Regexes to soft-warn about contact info pasted into the title / desc.
 // Backend will hard-flag too, so this is purely a UX nudge.
@@ -144,6 +139,8 @@ export const ListAProductScreen: React.FC = () => {
   }, [hasLocation, locationFetchStatus]);
 
   const { data: categoryTree } = useGetCategoryTreeQuery();
+  const { data: walletData } = useGetWalletQuery();
+  const slotsAvailable = walletData?.wallet.postCredits ?? 0;
   const [createListing, { isLoading: submitting }] = useCreateListingMutation();
 
   const [photos, setPhotos] = useState<PhotoSlot[]>([]);
@@ -166,7 +163,7 @@ export const ListAProductScreen: React.FC = () => {
   // and there's nothing sensible to send if nothing was picked).
   const trimmedTitle = title.trim();
   const priceNum = priceStr.trim() === '' ? NaN : Number(priceStr);
-  const hasSlot = STUB_SLOTS_AVAILABLE > 0;
+  const hasSlot = slotsAvailable > 0;
 
   const titleContactWarn = containsContact(trimmedTitle);
   const descContactWarn = containsContact(description);
@@ -293,8 +290,8 @@ export const ListAProductScreen: React.FC = () => {
           style={styles.slotChip}
         >
           <Text style={styles.slotChipText}>
-            {STUB_SLOTS_AVAILABLE} slot
-            {STUB_SLOTS_AVAILABLE === 1 ? '' : 's'}
+            {slotsAvailable} slot
+            {slotsAvailable === 1 ? '' : 's'}
           </Text>
           <ChevronDown size={layout.iconSize.sm} color={colors.primary} />
         </Pressable>
@@ -571,7 +568,7 @@ export const ListAProductScreen: React.FC = () => {
       <SlotChipSheet
         visible={slotSheetOpen}
         onClose={() => setSlotSheetOpen(false)}
-        slotsAvailable={STUB_SLOTS_AVAILABLE}
+        slotsAvailable={slotsAvailable}
         onViewWallet={() => {
           setSlotSheetOpen(false);
           navigation.navigate('ProductWallet');

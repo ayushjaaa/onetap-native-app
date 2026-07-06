@@ -1,11 +1,5 @@
 import React, { useMemo } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,45 +11,54 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { EmptyState } from '@/components/marketplace';
+import { ShimmerCard } from '@/components/common/Shimmer';
 import { formatINR } from '@/data/packagesCatalog';
-import {
-  olderPurchases,
-  type PurchaseRecord,
-  type PurchaseStatus,
-  recentPurchases,
-  STUB_PURCHASES,
-} from '@/data/purchaseStub';
-import {
-  formatRelativeShort,
-  stubThumbColour,
-} from '@/data/listingsStub';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
+import { useGetMyInterestsAsBuyerQuery } from '@/api/transactionsApi';
+import { useGetListingByIdQuery } from '@/api/productsApi';
+import type { Interest, InterestStatus } from '@/types';
+import { colors, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'PurchaseHistory'>;
 
+const EMPTY_INTERESTS: Interest[] = [];
+
+const isRecent = (iso: string, now: Date = new Date()): boolean => {
+  const d = new Date(iso).getTime();
+  if (Number.isNaN(d)) return false;
+  return now.getTime() - d <= 24 * 60 * 60 * 1000;
+};
+
 export const BuyerPurchaseHistoryScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
 
-  const purchases = STUB_PURCHASES;
-  const recent = useMemo(() => recentPurchases(purchases), [purchases]);
-  const older = useMemo(() => olderPurchases(purchases), [purchases]);
+  const { data, isLoading } = useGetMyInterestsAsBuyerQuery({ limit: 50 });
+  const interests = data?.interests ?? EMPTY_INTERESTS;
 
-  const isEmpty = purchases.length === 0;
+  const { recent, older } = useMemo(() => {
+    const now = new Date();
+    const r: Interest[] = [];
+    const o: Interest[] = [];
+    for (const i of interests) {
+      if (isRecent(i.createdAt, now)) r.push(i);
+      else o.push(i);
+    }
+    return { recent: r, older: o };
+  }, [interests]);
 
-  const handleOpenListing = (p: PurchaseRecord) => {
-    navigation.navigate('ListingDetail', { listingId: p.listingId });
+  const isEmpty = !isLoading && interests.length === 0;
+
+  const handleOpenListing = (i: Interest) => {
+    navigation.navigate('ListingDetail', { listingId: i.listingId });
   };
 
   const handleBrowse = () => {
-    navigation.popToTop();
+    // popToTop() alone would land back on whichever tab was last active
+    // (this screen is reached from the Profile tab), not necessarily Home —
+    // navigating to Tabs with an explicit nested Home screen param resolves
+    // both the stack pop and the tab switch in one call.
+    navigation.navigate('Tabs', { screen: 'Home' });
   };
 
   return (
@@ -79,7 +82,12 @@ export const BuyerPurchaseHistoryScreen: React.FC = () => {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {isEmpty ? (
+        {isLoading ? (
+          <>
+            <ShimmerCard />
+            <ShimmerCard />
+          </>
+        ) : isEmpty ? (
           <EmptyState
             icon={ShoppingBag}
             title="No purchases yet"
@@ -91,11 +99,11 @@ export const BuyerPurchaseHistoryScreen: React.FC = () => {
           <>
             {recent.length > 0 ? (
               <Section title="Recent (last 24h)">
-                {recent.map(p => (
+                {recent.map(i => (
                   <PurchaseCard
-                    key={p.id}
-                    purchase={p}
-                    onPress={() => handleOpenListing(p)}
+                    key={i._id}
+                    interest={i}
+                    onPress={() => handleOpenListing(i)}
                   />
                 ))}
               </Section>
@@ -105,11 +113,11 @@ export const BuyerPurchaseHistoryScreen: React.FC = () => {
               <Section
                 title={recent.length > 0 ? 'All purchases' : 'Purchases'}
               >
-                {older.map(p => (
+                {older.map(i => (
                   <PurchaseCard
-                    key={p.id}
-                    purchase={p}
-                    onPress={() => handleOpenListing(p)}
+                    key={i._id}
+                    interest={i}
+                    onPress={() => handleOpenListing(i)}
                   />
                 ))}
               </Section>
@@ -134,37 +142,40 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
 );
 
 interface PurchaseCardProps {
-  purchase: PurchaseRecord;
+  interest: Interest;
   onPress: () => void;
 }
 
-const PurchaseCard: React.FC<PurchaseCardProps> = ({ purchase, onPress }) => {
+const PurchaseCard: React.FC<PurchaseCardProps> = ({ interest, onPress }) => {
+  // Interest docs only store listingId/buyerId/sellerId — title/price come
+  // from a client-side join. A completed (won) purchase's listing is always
+  // Sold, and a pending one is always Live, so GET /listings/:id (which only
+  // serves Live|Sold) never 404s here — but a rejected interest's listing
+  // could since then have moved to Rejected/Expired/Deleted by the seller,
+  // so `listing` may be undefined for the 'lost' case and falls back below.
+  const { data: listing } = useGetListingByIdQuery(interest.listingId);
+
   const isDim =
-    purchase.status === 'lost' || purchase.status === 'won';
-  // Visual fade only for resolved outcomes that aren't actionable from this
-  // screen anymore. Pending stays bright since the buyer is still waiting.
+    interest.status === 'rejected' || interest.status === 'completed';
 
-  const statusLabel = STATUS_COPY[purchase.status];
-  const StatusIcon = STATUS_ICON[purchase.status];
-  const statusColour = STATUS_COLOUR[purchase.status];
+  const statusLabel = STATUS_COPY[interest.status];
+  const StatusIcon = STATUS_ICON[interest.status];
+  const statusColour = STATUS_COLOUR[interest.status];
 
-  const timestampLabel = purchase.resolvedAtIso
-    ? formatRelativeShort(purchase.resolvedAtIso)
-    : formatRelativeShort(purchase.interestedAtIso);
+  const timestampLabel = formatRelativeShort(interest.createdAt);
+  const title = listing?.title ?? 'Listing';
+  const priceInPaise = listing?.price;
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-      ]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTopRow}>
         <View
           style={[
             styles.thumb,
-            { backgroundColor: stubThumbColour(purchase.listingId) },
+            { backgroundColor: stubThumbColour(interest.listingId) },
             isDim && styles.thumbDim,
           ]}
         />
@@ -173,10 +184,10 @@ const PurchaseCard: React.FC<PurchaseCardProps> = ({ purchase, onPress }) => {
             style={[styles.cardTitle, isDim && styles.cardTitleDim]}
             numberOfLines={2}
           >
-            {purchase.listingTitle}
+            {title}
           </Text>
           <Text style={[styles.cardPrice, isDim && styles.cardPriceDim]}>
-            {formatINR(purchase.priceInPaise)}
+            {priceInPaise != null ? formatINR(priceInPaise) : '—'}
           </Text>
         </View>
       </View>
@@ -189,33 +200,26 @@ const PurchaseCard: React.FC<PurchaseCardProps> = ({ purchase, onPress }) => {
           </Text>
           <Text style={styles.statusTime}>· {timestampLabel}</Text>
         </View>
-        {purchase.status === 'won' ? (
-          <Text style={styles.sellerLine}>
-            Pay {purchase.sellerName} on delivery
-          </Text>
-        ) : (
-          <Text style={styles.sellerLine}>Seller: {purchase.sellerName}</Text>
-        )}
       </View>
     </Pressable>
   );
 };
 
-const STATUS_COPY: Record<PurchaseStatus, string> = {
-  won: 'Got the deal',
-  lost: 'Seller chose someone else',
+const STATUS_COPY: Record<InterestStatus, string> = {
+  completed: 'Got the deal',
+  rejected: 'Seller chose someone else',
   pending: 'Awaiting seller decision',
 };
 
-const STATUS_ICON: Record<PurchaseStatus, typeof CheckCircle2> = {
-  won: CheckCircle2,
-  lost: XCircle,
+const STATUS_ICON: Record<InterestStatus, typeof CheckCircle2> = {
+  completed: CheckCircle2,
+  rejected: XCircle,
   pending: Clock,
 };
 
-const STATUS_COLOUR: Record<PurchaseStatus, string> = {
-  won: colors.success,
-  lost: colors.textMuted,
+const STATUS_COLOUR: Record<InterestStatus, string> = {
+  completed: colors.success,
+  rejected: colors.textMuted,
   pending: colors.warning,
 };
 
@@ -336,9 +340,5 @@ const styles = StyleSheet.create({
   statusTime: {
     ...typography.caption,
     color: colors.textMuted,
-  },
-  sellerLine: {
-    ...typography.caption,
-    color: colors.textSecondary,
   },
 });

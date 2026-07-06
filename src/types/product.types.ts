@@ -85,3 +85,18 @@ export interface DeleteListingResponseData {
   id: string;
   status: ListingStatus;
 }
+
+export interface SearchListingsParams {
+  q?: string;
+  limit?: number;
+  skip?: number;
+}
+
+export interface SearchListingsResponseData {
+  listings: Listing[];
+  count: number;
+}
+
+export interface SearchAutocompleteResponseData {
+  suggestions: string[];
+}

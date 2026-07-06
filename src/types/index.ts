@@ -10,3 +10,5 @@ export * from './chat.types';
 export * from './api.types';
 export * from './navigation.types';
 export * from './category.types';
+export * from './notification.types';
+export * from './transaction.types';

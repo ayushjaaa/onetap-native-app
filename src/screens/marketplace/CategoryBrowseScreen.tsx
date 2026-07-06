@@ -18,6 +18,7 @@ import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
 import { useGetFeedQuery } from '@/api/productsApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { formatRelativeShort } from '@/data/listingsStub';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -53,6 +54,7 @@ export const CategoryBrowseScreen: React.FC<Props> = ({ route }) => {
 
   const location = useAppSelector(state => state.location);
   const hasLocation = location.latitude != null && location.longitude != null;
+  const user = useAppSelector(state => state.auth.user);
 
   const { data: tree, isLoading: categoriesLoading } =
     useGetCategoryTreeQuery();
@@ -197,7 +199,9 @@ export const CategoryBrowseScreen: React.FC<Props> = ({ route }) => {
             title="No listings yet"
             message={`Be the first to post in ${category.name}.`}
             actionLabel="Post an Ad"
-            onActionPress={() => {}}
+            onActionPress={() =>
+              navigation.navigate(resolvePostAdDestination(user) as never)
+            }
           />
         ) : (
           listings.map(item => (

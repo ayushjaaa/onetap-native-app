@@ -1,11 +1,5 @@
 import React, { useMemo } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,26 +10,19 @@ import {
   TrendingUp,
 } from 'lucide-react-native';
 import { EmptyState } from '@/components/marketplace';
+import { ShimmerCard } from '@/components/common/Shimmer';
 import { formatINR } from '@/data/packagesCatalog';
-import {
-  formatRelativeShort,
-  isOwnedByCurrentSeller,
-  STUB_LISTINGS,
-  type StubListing,
-  stubThumbColour,
-} from '@/data/listingsStub';
+import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
+import { useGetMyTransactionsQuery } from '@/api/transactionsApi';
+import { useGetListingByIdQuery } from '@/api/productsApi';
 import { useToast } from '@/hooks/useToast';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import type { Transaction } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'SalesHistory'>;
+
+const EMPTY_TRANSACTIONS: Transaction[] = [];
 
 const isCurrentMonth = (iso: string, now: Date = new Date()): boolean => {
   const d = new Date(iso);
@@ -45,32 +32,21 @@ const isCurrentMonth = (iso: string, now: Date = new Date()): boolean => {
   );
 };
 
-const sortBySoldDesc = (a: StubListing, b: StubListing): number => {
-  const aT = new Date(a.soldAtIso ?? '').getTime();
-  const bT = new Date(b.soldAtIso ?? '').getTime();
-  return bT - aT;
-};
-
 export const SellerSalesHistoryScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
 
-  const sales = useMemo(
-    () =>
-      STUB_LISTINGS
-        .filter(l => l.status === 'sold' && isOwnedByCurrentSeller(l))
-        .sort(sortBySoldDesc),
-    [],
-  );
+  const { data, isLoading } = useGetMyTransactionsQuery({ role: 'seller' });
+  const sales = data?.transactions ?? EMPTY_TRANSACTIONS;
 
   const { thisMonth, earlier, totalRevenuePaise } = useMemo(() => {
     const now = new Date();
-    const tm: StubListing[] = [];
-    const eo: StubListing[] = [];
+    const tm: Transaction[] = [];
+    const eo: Transaction[] = [];
     let total = 0;
     for (const s of sales) {
-      total += s.priceInPaise;
-      if (s.soldAtIso && isCurrentMonth(s.soldAtIso, now)) {
+      total += s.amount;
+      if (isCurrentMonth(s.completedAt, now)) {
         tm.push(s);
       } else {
         eo.push(s);
@@ -79,13 +55,13 @@ export const SellerSalesHistoryScreen: React.FC = () => {
     return { thisMonth: tm, earlier: eo, totalRevenuePaise: total };
   }, [sales]);
 
-  const isEmpty = sales.length === 0;
+  const isEmpty = !isLoading && sales.length === 0;
 
-  const handleOpenListing = (sale: StubListing) => {
-    navigation.navigate('ListingDetail', { listingId: sale.id });
+  const handleOpenListing = (sale: Transaction) => {
+    navigation.navigate('ListingDetail', { listingId: sale.listingId });
   };
 
-  const handleViewReceipt = (_sale: StubListing) => {
+  const handleViewReceipt = (_sale: Transaction) => {
     // TODO: receipt detail screen / sheet in v1.5 — for now surface the key
     // line so the seller can see something happened.
     toast.info({
@@ -124,7 +100,12 @@ export const SellerSalesHistoryScreen: React.FC = () => {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {isEmpty ? (
+        {isLoading ? (
+          <>
+            <ShimmerCard />
+            <ShimmerCard />
+          </>
+        ) : isEmpty ? (
           <EmptyState
             icon={TrendingUp}
             title="No sales yet"
@@ -140,7 +121,7 @@ export const SellerSalesHistoryScreen: React.FC = () => {
               >
                 {thisMonth.map(sale => (
                   <SaleCard
-                    key={sale.id}
+                    key={sale._id}
                     sale={sale}
                     onPress={() => handleOpenListing(sale)}
                     onViewReceipt={() => handleViewReceipt(sale)}
@@ -150,12 +131,10 @@ export const SellerSalesHistoryScreen: React.FC = () => {
             ) : null}
 
             {earlier.length > 0 ? (
-              <Section
-                title={thisMonth.length > 0 ? 'Earlier' : 'All sales'}
-              >
+              <Section title={thisMonth.length > 0 ? 'Earlier' : 'All sales'}>
                 {earlier.map(sale => (
                   <SaleCard
-                    key={sale.id}
+                    key={sale._id}
                     sale={sale}
                     onPress={() => handleOpenListing(sale)}
                     onViewReceipt={() => handleViewReceipt(sale)}
@@ -183,51 +162,50 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
 );
 
 interface SaleCardProps {
-  sale: StubListing;
+  sale: Transaction;
   onPress: () => void;
   onViewReceipt: () => void;
 }
 
-const SaleCard: React.FC<SaleCardProps> = ({ sale, onPress, onViewReceipt }) => {
-  const soldRelative = sale.soldAtIso
-    ? formatRelativeShort(sale.soldAtIso)
-    : '';
-  const buyer = sale.soldToName ?? 'a buyer';
+const SaleCard: React.FC<SaleCardProps> = ({
+  sale,
+  onPress,
+  onViewReceipt,
+}) => {
+  // Transaction docs only store listingId/amount — title comes from a
+  // client-side join against the listing itself. Sold listings are always
+  // publicly readable (GET /listings/:id allows Live|Sold), so this never
+  // 404s for a real sale.
+  const { data: listing } = useGetListingByIdQuery(sale.listingId);
+
+  const soldRelative = formatRelativeShort(sale.completedAt);
+  const title = listing?.title ?? 'Listing';
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-      ]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTopRow}>
         <View
           style={[
             styles.thumb,
-            { backgroundColor: stubThumbColour(sale.id) },
+            { backgroundColor: stubThumbColour(sale.listingId) },
           ]}
         />
         <View style={styles.cardText}>
           <Text style={styles.cardTitle} numberOfLines={2}>
-            {sale.title}
+            {title}
           </Text>
           {/* Price stays in primary green — earnings matter, not dimmed */}
-          <Text style={styles.cardPrice}>{formatINR(sale.priceInPaise)}</Text>
+          <Text style={styles.cardPrice}>{formatINR(sale.amount)}</Text>
         </View>
       </View>
 
       <View style={styles.cardFooter}>
         <View style={styles.statusRow}>
-          <CheckCircle2
-            size={layout.iconSize.sm}
-            color={colors.success}
-          />
-          <Text style={styles.statusText}>
-            Sold to {buyer}
-            {soldRelative ? ` · ${soldRelative}` : ''}
-          </Text>
+          <CheckCircle2 size={layout.iconSize.sm} color={colors.success} />
+          <Text style={styles.statusText}>Sold · {soldRelative}</Text>
         </View>
         <Pressable
           onPress={onViewReceipt}
@@ -235,10 +213,7 @@ const SaleCard: React.FC<SaleCardProps> = ({ sale, onPress, onViewReceipt }) => 
           style={styles.receiptLink}
         >
           <Text style={styles.receiptLinkText}>View receipt</Text>
-          <ChevronRight
-            size={layout.iconSize.sm}
-            color={colors.primary}
-          />
+          <ChevronRight size={layout.iconSize.sm} color={colors.primary} />
         </Pressable>
       </View>
     </Pressable>

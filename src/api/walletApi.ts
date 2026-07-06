@@ -2,6 +2,10 @@ import { baseApi } from './baseApi';
 import type { ApiResponse } from '@/types/api.types';
 import type {
   GetPackagesResponseData,
+  GetWalletResponseData,
+  GetWalletTransactionReceiptResponseData,
+  GetWalletTransactionsParams,
+  GetWalletTransactionsResponseData,
   InitiatePackagePurchaseRequest,
   InitiatePackagePurchaseResponseData,
   VerifyPaymentRequest,
@@ -10,6 +14,47 @@ import type {
 
 export const walletApi = baseApi.injectEndpoints({
   endpoints: builder => ({
+    getWallet: builder.query<GetWalletResponseData, void>({
+      query: () => ({ url: '/wallet', method: 'GET' }),
+      transformResponse: (response: ApiResponse<GetWalletResponseData>) =>
+        response.data,
+      keepUnusedDataFor: 30,
+      providesTags: [{ type: 'Wallet' as const, id: 'BALANCE' }],
+    }),
+
+    getWalletTransactions: builder.query<
+      GetWalletTransactionsResponseData,
+      GetWalletTransactionsParams | undefined
+    >({
+      query: params => ({
+        url: '/wallet/transactions',
+        method: 'GET',
+        params,
+      }),
+      transformResponse: (
+        response: ApiResponse<GetWalletTransactionsResponseData>,
+      ) => response.data,
+      keepUnusedDataFor: 30,
+      providesTags: [{ type: 'Wallet' as const, id: 'TRANSACTIONS' }],
+    }),
+
+    getWalletTransactionReceipt: builder.query<
+      GetWalletTransactionReceiptResponseData,
+      string
+    >({
+      query: id => ({
+        url: `/wallet/transactions/${id}/receipt`,
+        method: 'GET',
+      }),
+      transformResponse: (
+        response: ApiResponse<GetWalletTransactionReceiptResponseData>,
+      ) => response.data,
+      keepUnusedDataFor: 30,
+      providesTags: (_result, _error, id) => [
+        { type: 'Wallet' as const, id: `RECEIPT_${id}` },
+      ],
+    }),
+
     getPackages: builder.query<GetPackagesResponseData, void>({
       query: () => ({ url: '/wallet/packages', method: 'GET' }),
       transformResponse: (response: ApiResponse<GetPackagesResponseData>) =>
@@ -47,15 +92,24 @@ export const walletApi = baseApi.injectEndpoints({
       transformResponse: (response: ApiResponse<VerifyPaymentResponseData>) =>
         response.data,
       extraOptions: { maxRetries: 0 },
-      // A successful purchase changes postSlots — invalidate the listings
-      // "MINE" summary so MyAdsScreen/ListAProductScreen refetch the new count.
-      invalidatesTags: [{ type: 'Listing' as const, id: 'MINE' }],
+      // A successful purchase changes postSlots/postCredits and appends a
+      // ledger row — invalidate the listings "MINE" summary (for MyAdsScreen/
+      // ListAProductScreen) and the wallet balance/transactions (for
+      // ProductWalletScreen) so they all refetch the new state.
+      invalidatesTags: [
+        { type: 'Listing' as const, id: 'MINE' },
+        { type: 'Wallet' as const, id: 'BALANCE' },
+        { type: 'Wallet' as const, id: 'TRANSACTIONS' },
+      ],
     }),
   }),
   overrideExisting: false,
 });
 
 export const {
+  useGetWalletQuery,
+  useGetWalletTransactionsQuery,
+  useGetWalletTransactionReceiptQuery,
   useGetPackagesQuery,
   useInitiatePackagePurchaseMutation,
   useVerifyPaymentMutation,

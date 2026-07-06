@@ -41,3 +41,63 @@ export interface VerifyPaymentResponseData {
   status: 'paid' | 'processing' | 'failed';
   order: VerifyPaymentOrder;
 }
+
+export interface Wallet {
+  _id: string;
+  userId: string;
+  postCredits: number;
+  biddingBalance: number; // paise
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GetWalletResponseData {
+  wallet: Wallet;
+}
+
+export type WalletTransactionKind =
+  | 'topup'
+  | 'package_purchase'
+  | 'bid_spend'
+  | 'bid_refund'
+  | 'manual';
+
+export interface WalletTransaction {
+  _id: string;
+  userId: string;
+  type: 'credit' | 'debit';
+  kind: WalletTransactionKind;
+  amount: number;
+  field: 'biddingBalance' | 'postCredits';
+  description: string;
+  referenceId?: string;
+  createdAt: string;
+}
+
+export interface GetWalletTransactionsParams {
+  limit?: number;
+  skip?: number;
+}
+
+export interface GetWalletTransactionsResponseData {
+  transactions: WalletTransaction[];
+  total: number;
+  limit: number;
+  skip: number;
+}
+
+export interface PaymentOrderSummary {
+  razorpayOrderId: string;
+  razorpayPaymentId?: string;
+  amount: number;
+  purpose: string;
+  purposeRef?: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GetWalletTransactionReceiptResponseData {
+  transaction: WalletTransaction;
+  paymentOrder: PaymentOrderSummary | null;
+}

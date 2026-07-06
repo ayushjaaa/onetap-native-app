@@ -8,6 +8,9 @@ import type {
   GetFeedResponseData,
   GetMyListingsResponseData,
   Listing,
+  SearchAutocompleteResponseData,
+  SearchListingsParams,
+  SearchListingsResponseData,
 } from '@/types';
 
 export const productsApi = baseApi.injectEndpoints({
@@ -98,6 +101,33 @@ export const productsApi = baseApi.injectEndpoints({
         { type: 'Listing' as const, id: 'FEED' },
       ],
     }),
+
+    searchListings: builder.query<
+      SearchListingsResponseData,
+      SearchListingsParams
+    >({
+      query: params => ({
+        url: '/marketplace/listings/search',
+        method: 'GET',
+        params,
+      }),
+      transformResponse: (response: ApiResponse<SearchListingsResponseData>) =>
+        response.data,
+      keepUnusedDataFor: 30,
+      providesTags: [{ type: 'Listing' as const, id: 'SEARCH' }],
+    }),
+
+    autocompleteSearch: builder.query<SearchAutocompleteResponseData, string>({
+      query: q => ({
+        url: '/marketplace/listings/search/autocomplete',
+        method: 'GET',
+        params: { q },
+      }),
+      transformResponse: (
+        response: ApiResponse<SearchAutocompleteResponseData>,
+      ) => response.data,
+      keepUnusedDataFor: 15,
+    }),
   }),
   overrideExisting: false,
 });
@@ -108,6 +138,8 @@ export const {
   useGetListingByIdQuery,
   useCreateListingMutation,
   useDeleteListingMutation,
+  useSearchListingsQuery,
+  useAutocompleteSearchQuery,
 } = productsApi;
 
 export type { Listing };

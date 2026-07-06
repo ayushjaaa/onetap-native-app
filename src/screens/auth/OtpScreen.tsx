@@ -18,6 +18,7 @@ import { secureStorage } from '@/services/secureStorage';
 import { setCredentials } from '@/store/authSlice';
 import { mapApiError } from '@/utils/errorMapper';
 import { formatPhoneWithPrefix } from '@/utils/formatters';
+import { env } from '@/config/env';
 import {
   OTP_LENGTH,
   OTP_TIMER_SECONDS,
@@ -70,8 +71,10 @@ export const OtpScreen: React.FC = () => {
     setIsProcessing(true);
 
     try {
-      // 1. Verify OTP
-      await verifyOtp({ code: otp }).unwrap();
+      // 1. Verify OTP — skipped in mock mode (dummy code, real APIs otherwise)
+      if (!env.USE_MOCK_OTP) {
+        await verifyOtp({ code: otp }).unwrap();
+      }
 
       // 2. Use user + token already received from previous step
       //    (login API for manual flow, /auth/google for Google flow)

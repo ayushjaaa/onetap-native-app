@@ -37,9 +37,14 @@ import {
   useGetListingByIdQuery,
   useDeleteListingMutation,
 } from '@/api/productsApi';
+import {
+  useExpressInterestMutation,
+  useGetMyInterestsAsSellerQuery,
+  useSelectBuyerMutation,
+} from '@/api/transactionsApi';
 import { mapApiError } from '@/utils/errorMapper';
 import { useAppSelector } from '@/hooks/useAppSelector';
-import type { Listing } from '@/types';
+import type { Interest, Listing } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
@@ -75,6 +80,26 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const isSellerMode = !!user && listing?.sellerId === user.id;
   const [menuOpen, setMenuOpen] = useState(false);
   const [rejectionOpen, setRejectionOpen] = useState(false);
+  const [buySheetOpen, setBuySheetOpen] = useState(false);
+  const [hasExpressedInterest, setHasExpressedInterest] = useState(false);
+  const [selectingInterest, setSelectingInterest] = useState<Interest | null>(
+    null,
+  );
+
+  const [expressInterest, { isLoading: expressingInterest }] =
+    useExpressInterestMutation();
+  const [selectBuyer, { isLoading: selectingBuyerLoading }] =
+    useSelectBuyerMutation();
+
+  // Only the seller needs their received-interests list, and only while
+  // viewing their own Live listing — skip the fetch entirely otherwise.
+  const { data: receivedInterestsData } = useGetMyInterestsAsSellerQuery(
+    undefined,
+    { skip: !isSellerMode || listing?.status !== 'Live' },
+  );
+  const pendingBuyers = (receivedInterestsData?.interests ?? []).filter(
+    i => i.listingId === listing?._id && i.status === 'pending',
+  );
 
   // Defensive: unknown listingId renders an inline error frame instead of
   // crashing on undefined access.
@@ -109,6 +134,47 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   }
 
   const isUnavailable = listing.status === 'Sold';
+
+  const handleExpressInterest = async () => {
+    try {
+      await expressInterest({ listingId: listing._id }).unwrap();
+      setBuySheetOpen(false);
+      setHasExpressedInterest(true);
+      toast.success({
+        title: 'Interest sent',
+        message: 'The seller has been notified — they may reach out soon.',
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      setBuySheetOpen(false);
+      toast.error({
+        title: "Couldn't send interest",
+        message: mapped.message,
+      });
+    }
+  };
+
+  const handleSelectBuyer = async () => {
+    if (!selectingInterest) return;
+    try {
+      await selectBuyer({
+        interestId: selectingInterest._id,
+        listingId: listing._id,
+      }).unwrap();
+      setSelectingInterest(null);
+      toast.success({
+        title: 'Buyer selected',
+        message: 'This listing is now marked as sold.',
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      setSelectingInterest(null);
+      toast.error({
+        title: "Couldn't select buyer",
+        message: mapped.message,
+      });
+    }
+  };
 
   const handleRemove = () => {
     setMenuOpen(false);
@@ -245,11 +311,58 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           <Text style={styles.sectionTitle}>Description</Text>
           <Text style={styles.description}>{listing.description}</Text>
 
-          {/* Buyer-side: express interest, chat, seller card, and the
-              interested-buyers/sell-to-buyer seller section are all out of
-              scope for this pass — see integration docs. This screen is
-              currently only wired for the seller viewing their own
-              listing's status and removing it. */}
+          {/* Seller-side: buyers who've expressed interest in this Live
+              listing, with a "select this buyer" action that marks it Sold.
+              Chat and a public seller-info card for buyers are still out of
+              scope — see integration docs. */}
+          {isSellerMode && listing.status === 'Live' ? (
+            <View style={styles.buyersBlock}>
+              <Text style={styles.sectionTitle}>
+                Interested buyers
+                {pendingBuyers.length > 0 ? ` (${pendingBuyers.length})` : ''}
+              </Text>
+              {pendingBuyers.length === 0 ? (
+                <View style={styles.buyersEmpty}>
+                  <Text style={styles.buyersEmptyText}>
+                    No one has expressed interest yet.
+                  </Text>
+                </View>
+              ) : (
+                pendingBuyers.map(interest => (
+                  <View key={interest._id} style={styles.buyerRow}>
+                    <View style={styles.buyerAvatar}>
+                      <Text style={styles.buyerAvatarText}>
+                        {interest.buyerId.slice(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.buyerInfo}>
+                      <View style={styles.buyerNameRow}>
+                        <Text style={styles.buyerName}>Interested buyer</Text>
+                        <Text style={styles.buyerTime}>
+                          {formatRelativeShort(interest.createdAt)}
+                        </Text>
+                      </View>
+                      {interest.message ? (
+                        <Text style={styles.buyerLocation}>
+                          "{interest.message}"
+                        </Text>
+                      ) : null}
+                      <View style={styles.buyerBtns}>
+                        <Pressable
+                          onPress={() => setSelectingInterest(interest)}
+                          style={styles.buyerSellBtn}
+                        >
+                          <Text style={styles.buyerSellText}>
+                            Select this buyer
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -263,14 +376,16 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 This product is no longer available
               </Text>
             </View>
+          ) : hasExpressedInterest ? (
+            <View style={styles.unavailableBar}>
+              <Clock size={layout.iconSize.sm} color={colors.warning} />
+              <Text style={styles.unavailableText}>
+                Interest sent — awaiting seller
+              </Text>
+            </View>
           ) : (
             <Pressable
-              onPress={() =>
-                toast.info({
-                  title: 'Not available yet',
-                  message: 'Expressing interest isn’t wired up yet.',
-                })
-              }
+              onPress={() => setBuySheetOpen(true)}
               style={({ pressed }) => [
                 styles.buyBtn,
                 pressed && styles.buyBtnPressed,
@@ -364,6 +479,122 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             listing post karein (1 slot consume hoga).
           </Text>
         </View>
+      </Modal>
+
+      {/* Buy confirm sheet (buyer mode) */}
+      <Modal
+        visible={buySheetOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setBuySheetOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setBuySheetOpen(false)}
+        />
+        <View style={styles.buySheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.buyRecap}>
+            <View style={[styles.buyRecapThumb, styles.galleryFallback]}>
+              <ImageOff size={layout.iconSize.md} color={colors.textMuted} />
+            </View>
+            <View style={styles.buyRecapText}>
+              <Text style={styles.buyRecapTitle} numberOfLines={2}>
+                {listing.title}
+              </Text>
+              <Text style={styles.buyRecapPrice}>
+                {formatPricePaise(listing.price)}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.buySheetHeading}>Express interest?</Text>
+          <Text style={styles.buySheetBody}>
+            The seller will see that you're interested and can choose to sell to
+            you. This isn't a payment — Cash on Delivery only.
+          </Text>
+          <View style={styles.buyPrivacyCard}>
+            <CheckCircle2 size={layout.iconSize.sm} color={colors.primary} />
+            <Text style={styles.buyPrivacyText}>
+              Your contact details are only shared if the seller selects you.
+            </Text>
+          </View>
+          <View style={styles.buyBtnRow}>
+            <Pressable
+              onPress={() => setBuySheetOpen(false)}
+              disabled={expressingInterest}
+              style={[
+                styles.buyCancelBtn,
+                expressingInterest && styles.buyCancelBtnDisabled,
+              ]}
+            >
+              <Text style={styles.buyCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleExpressInterest}
+              disabled={expressingInterest}
+              style={[
+                styles.buyConfirmBtn,
+                expressingInterest && styles.buyConfirmBtnLoading,
+              ]}
+            >
+              {expressingInterest ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <Text style={styles.buyConfirmText}>Confirm interest</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Select-buyer confirm modal (seller mode) */}
+      <Modal
+        visible={!!selectingInterest}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectingInterest(null)}
+      >
+        <Pressable
+          style={styles.confirmBackdrop}
+          onPress={() => setSelectingInterest(null)}
+        >
+          <Pressable
+            style={styles.confirmCard}
+            onPress={e => e.stopPropagation()}
+          >
+            <Text style={styles.confirmTitle}>Select this buyer?</Text>
+            <Text style={styles.confirmBody}>
+              This marks the listing as Sold and rejects every other interested
+              buyer. This can't be undone.
+            </Text>
+            <View style={styles.confirmHint}>
+              <CheckCircle2 size={layout.iconSize.sm} color={colors.primary} />
+              <Text style={styles.confirmHintText}>
+                {formatPricePaise(listing.price)} for {listing.title}
+              </Text>
+            </View>
+            <View style={styles.confirmBtnRow}>
+              <Pressable
+                onPress={() => setSelectingInterest(null)}
+                disabled={selectingBuyerLoading}
+                style={styles.confirmCancelBtn}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleSelectBuyer}
+                disabled={selectingBuyerLoading}
+                style={styles.confirmHoldBtn}
+              >
+                {selectingBuyerLoading ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={styles.confirmHoldText}>Confirm sale</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
