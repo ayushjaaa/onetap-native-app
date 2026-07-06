@@ -1,56 +1,37 @@
 import React from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { CategoryCard } from '@/components/marketplace';
 import { Shimmer } from '@/components/common/Shimmer';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
-import type {
-  CategoryRef,
-  MainStackParamList,
-} from '@/types/navigation.types';
+import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
+import type { MainStackParamList } from '@/types/navigation.types';
+import type { CategoryNode } from '@/types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'CategoryList'>;
 
-const STUB_CATEGORIES: CategoryRef[] = [
-  { id: '1', name: 'Mobiles', iconName: 'phone_iphone' },
-  { id: '2', name: 'Vehicles', iconName: 'directions_car' },
-  { id: '3', name: 'Properties', iconName: 'home' },
-  { id: '4', name: 'Jobs', iconName: 'work' },
-  { id: '5', name: 'Furniture', iconName: 'chair' },
-  { id: '6', name: 'Fashion', iconName: 'checkroom' },
-  { id: '7', name: 'Electronics', iconName: 'computer' },
-  { id: '8', name: 'Sports', iconName: 'sports_soccer' },
-  { id: '9', name: 'Pets', iconName: 'pets' },
-  { id: '10', name: 'Books', iconName: 'book' },
-  { id: '11', name: 'Services', iconName: 'handyman' },
-];
+const EMPTY_CATEGORIES: CategoryNode[] = [];
 
 export const CategoryListScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
-  const isLoading = false;
+  const { data: categories = EMPTY_CATEGORIES, isLoading } =
+    useGetCategoryTreeQuery();
 
-  const handleSelect = (category: CategoryRef) => {
-    navigation.navigate('CategoryBrowse', { category });
+  const handleSelect = (category: CategoryNode) => {
+    navigation.navigate('CategoryBrowse', {
+      category: { id: category.id, name: category.name },
+    });
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={['top']}
+      testID="category-list-screen"
+    >
       {/* Header */}
       <View style={styles.header}>
         <Pressable
@@ -92,9 +73,10 @@ export const CategoryListScreen: React.FC = () => {
               />
             </>
           ) : (
-            STUB_CATEGORIES.map(cat => (
+            categories.map(cat => (
               <Pressable
                 key={cat.id}
+                testID={`category-row-${cat.id}`}
                 onPress={() => handleSelect(cat)}
                 style={({ pressed }) => [
                   styles.row,
@@ -103,8 +85,8 @@ export const CategoryListScreen: React.FC = () => {
               >
                 <View style={styles.rowIconWrap}>
                   <CategoryCard
-                    name=""
-                    iconName={cat.iconName}
+                    name={cat.name}
+                    showLabel={false}
                     style={styles.rowIconCard}
                   />
                 </View>

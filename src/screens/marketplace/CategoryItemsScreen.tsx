@@ -1,11 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type {
@@ -14,32 +8,37 @@ import type {
 } from '@react-navigation/native-stack';
 import { ChevronLeft, LayoutGrid, List as ListIcon } from 'lucide-react-native';
 import { EmptyState, ListingCard } from '@/components/marketplace';
-import { ShimmerCard } from '@/components/common/Shimmer';
-import {
-  STUB_LIVE_LISTINGS,
-  toListingCardShape,
-  type ListingCardShape,
-} from '@/data/listingsStub';
-import {
-  colors,
-  fontSize,
-  layout,
-  spacing,
-  typography,
-} from '@/theme';
+import { ShimmerCard, Shimmer } from '@/components/common/Shimmer';
+import { formatRelativeShort } from '@/data/listingsStub';
+import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
+import { useGetFeedQuery } from '@/api/productsApi';
+import { skipToken } from '@reduxjs/toolkit/query/react';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
+import type { CategoryNode, Listing } from '@/types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'CategoryItems'>;
 type Props = NativeStackScreenProps<MainStackParamList, 'CategoryItems'>;
 
 type ViewMode = 'grid' | 'list';
 
-const STUB_SUBS = [
-  { id: 'all', name: 'All' },
-  { id: 'sub1', name: 'Brand A' },
-  { id: 'sub2', name: 'Brand B' },
-  { id: 'sub3', name: 'Brand C' },
-];
+const ALL_SUBCATEGORY: CategoryNode = { id: 'all', name: 'All' };
+const EMPTY_SUBCATEGORIES: CategoryNode[] = [];
+const EMPTY_LISTINGS: Listing[] = [];
+
+const formatPricePaise = (paise: number): string =>
+  `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+
+const toCardData = (listing: Listing) => ({
+  id: listing._id,
+  image: listing.photos[0],
+  title: listing.title,
+  price: formatPricePaise(listing.price),
+  location: listing.address ?? '',
+  time: formatRelativeShort(listing.createdAt),
+  badge: listing.condition,
+});
 
 export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<Nav>();
@@ -48,11 +47,52 @@ export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
   const [activeSub, setActiveSub] = useState(subcategoryId ?? 'all');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
 
-  const isLoading = false;
-  const items: ListingCardShape[] = STUB_LIVE_LISTINGS.map(toListingCardShape);
+  const location = useAppSelector(state => state.location);
+  const hasLocation = location.latitude != null && location.longitude != null;
+
+  const { data: tree, isLoading: categoriesLoading } =
+    useGetCategoryTreeQuery();
+  const subcategories = [
+    ALL_SUBCATEGORY,
+    ...(tree?.find(node => node.id === category.id)?.children ??
+      EMPTY_SUBCATEGORIES),
+  ];
+
+  // Same backend constraint as CategoryBrowseScreen: the feed's `category`
+  // filter is a plain string-equality match against `Listing.category`
+  // (leaf ids only, e.g. `vehicles-cars`) — it can't match "any child of X".
+  // "All" therefore omits the server-side filter and scopes client-side by
+  // prefix below, instead of sending this screen's top-level category.id
+  // (which no real listing is ever stored with).
+  const selectedLeafId = activeSub !== 'all' ? activeSub : undefined;
+
+  const { data: feedData, isLoading: isLoadingItems } = useGetFeedQuery(
+    hasLocation
+      ? {
+          lat: location.latitude as number,
+          lng: location.longitude as number,
+          category: selectedLeafId,
+        }
+      : skipToken,
+  );
+
+  const isLoading = isLoadingItems;
+  const rawItems = feedData?.listings ?? EMPTY_LISTINGS;
+  const scopedItems = selectedLeafId
+    ? rawItems
+    : rawItems.filter(
+        l =>
+          l.category.startsWith(`${category.id}-`) ||
+          l.category === category.id,
+      );
+  const items = scopedItems.map(toCardData);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={['top']}
+      testID="category-items-screen"
+    >
       <View style={styles.header}>
         <Pressable
           onPress={navigation.goBack}
@@ -63,7 +103,9 @@ export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
         </Pressable>
         <Text style={styles.headerTitle}>{category.name}</Text>
         <Pressable
-          onPress={() => setViewMode(prev => (prev === 'grid' ? 'list' : 'grid'))}
+          onPress={() =>
+            setViewMode(prev => (prev === 'grid' ? 'list' : 'grid'))
+          }
           hitSlop={spacing.md}
           style={styles.viewToggle}
         >
@@ -77,31 +119,35 @@ export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
 
       {/* Subcategory tabs */}
       <View style={styles.tabsWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabs}
-        >
-          {STUB_SUBS.map(sub => {
-            const isActive = activeSub === sub.id;
-            return (
-              <Pressable
-                key={sub.id}
-                onPress={() => setActiveSub(sub.id)}
-                style={[styles.tab, isActive && styles.tabActive]}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    isActive && styles.tabTextActive,
-                  ]}
+        {categoriesLoading ? (
+          <View style={styles.tabs}>
+            <Shimmer width={60} height={24} borderRadius={radius.full} />
+          </View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabs}
+          >
+            {subcategories.map(sub => {
+              const isActive = activeSub === sub.id;
+              return (
+                <Pressable
+                  key={sub.id}
+                  testID={`subcategory-tab-${sub.id}`}
+                  onPress={() => setActiveSub(sub.id)}
+                  style={[styles.tab, isActive && styles.tabActive]}
                 >
-                  {sub.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                  <Text
+                    style={[styles.tabText, isActive && styles.tabTextActive]}
+                  >
+                    {sub.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
 
       <ScrollView
@@ -128,7 +174,6 @@ export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
               location={item.location}
               time={item.time}
               badge={item.badge}
-              badgeColor={item.badgeColor}
               onPress={() =>
                 navigation.navigate('ListingDetail', { listingId: item.id })
               }

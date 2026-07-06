@@ -64,6 +64,7 @@ export interface CategoryCardProps {
   iconName?: string;
   iconUrl?: string;
   iconColor?: string;
+  showLabel?: boolean;
   onPress?: () => void;
   style?: ViewStyle;
 }
@@ -73,6 +74,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
   iconName,
   iconUrl,
   iconColor = colors.primary,
+  showLabel = true,
   onPress,
   style,
 }) => {
@@ -94,9 +96,11 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
           <Icon size={ICON_SIZE} color={iconColor} />
         )}
       </View>
-      <Text style={styles.name} numberOfLines={2}>
-        {name}
-      </Text>
+      {showLabel && (
+        <Text style={styles.name} numberOfLines={2}>
+          {name}
+        </Text>
+      )}
     </Pressable>
   );
 };

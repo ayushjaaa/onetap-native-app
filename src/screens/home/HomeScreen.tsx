@@ -21,24 +21,15 @@ import {
 } from '@/components/marketplace';
 import { Shimmer, ShimmerCard } from '@/components/common/Shimmer';
 import { useAppSelector } from '@/hooks/useAppSelector';
-import { STUB_LIVE_LISTINGS, toListingCardShape } from '@/data/listingsStub';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { useGetTopCategoriesQuery } from '@/api/categoriesApi';
+import { useGetFeedQuery } from '@/api/productsApi';
+import { skipToken } from '@reduxjs/toolkit/query/react';
+import type { CategoryNode, Listing } from '@/types';
+import { formatRelativeShort } from '@/data/listingsStub';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 
-interface CategoryStub {
-  id: string;
-  name: string;
-  iconName?: string;
-}
-
-interface ListingStub {
+interface ListingCardData {
   id: string;
   image?: string;
   title: string;
@@ -46,20 +37,23 @@ interface ListingStub {
   location: string;
   time: string;
   badge?: string;
-  badgeColor?: string;
 }
 
-const STUB_CATEGORIES: CategoryStub[] = [
-  { id: '1', name: 'Mobiles', iconName: 'phone_iphone' },
-  { id: '2', name: 'Vehicles', iconName: 'directions_car' },
-  { id: '3', name: 'Properties', iconName: 'home' },
-  { id: '4', name: 'Jobs', iconName: 'work' },
-  { id: '5', name: 'Furniture', iconName: 'chair' },
-  { id: '6', name: 'Fashion', iconName: 'checkroom' },
-  { id: '7', name: 'Electronics', iconName: 'computer' },
-  { id: '8', name: 'Sports', iconName: 'sports_soccer' },
-  { id: '9', name: 'Pets', iconName: 'pets' },
-];
+const formatPricePaise = (paise: number): string =>
+  `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+
+const toCardData = (listing: Listing): ListingCardData => ({
+  id: listing._id,
+  image: listing.photos[0],
+  title: listing.title,
+  price: formatPricePaise(listing.price),
+  location: listing.address ?? '',
+  time: formatRelativeShort(listing.createdAt),
+  badge: listing.condition,
+});
+
+const EMPTY_CATEGORIES: CategoryNode[] = [];
+const EMPTY_LISTINGS: Listing[] = [];
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
@@ -79,8 +73,38 @@ export const HomeScreen: React.FC = () => {
 
   const sellerBannerState = resolveSellerBannerState(user);
 
-  const isLoadingTrending = false;
-  const trending: ListingStub[] = STUB_LIVE_LISTINGS.map(toListingCardShape);
+  const {
+    data: topCategories = EMPTY_CATEGORIES,
+    isLoading: categoriesLoading,
+    error: categoriesError,
+  } = useGetTopCategoriesQuery();
+
+  console.log('[HomeScreen] top categories response:', topCategories);
+  console.log('[HomeScreen] top categories error:', categoriesError);
+
+  const hasLocation = location.latitude != null && location.longitude != null;
+  const {
+    data: feedData,
+    isLoading: isLoadingTrending,
+    error: feedError,
+  } = useGetFeedQuery(
+    hasLocation
+      ? { lat: location.latitude as number, lng: location.longitude as number }
+      : skipToken,
+  );
+
+  console.log(
+    '[HomeScreen] trending feed query args:',
+    hasLocation
+      ? { lat: location.latitude, lng: location.longitude }
+      : 'skipped (no location yet)',
+  );
+  console.log('[HomeScreen] trending feed response:', feedData);
+  console.log('[HomeScreen] trending feed error:', feedError);
+
+  const trending: ListingCardData[] = (
+    feedData?.listings ?? EMPTY_LISTINGS
+  ).map(toCardData);
 
   const handleBecomeSellerPress = () => {
     navigation.navigate('BecomeSellerIntro');
@@ -99,9 +123,9 @@ export const HomeScreen: React.FC = () => {
     navigation.navigate('CategoryList');
   };
 
-  const handleCategoryPress = (category: CategoryStub) => {
+  const handleCategoryPress = (category: CategoryNode) => {
     navigation.navigate('CategoryBrowse', {
-      category: { id: category.id, name: category.name, iconName: category.iconName },
+      category: { id: category.id, name: category.name },
     });
   };
 
@@ -125,7 +149,9 @@ export const HomeScreen: React.FC = () => {
               <MapPin size={layout.iconSize.sm} color={colors.textMuted} />
               <Text style={styles.locationText} numberOfLines={1}>
                 {location.city
-                  ? `${location.city}${location.state ? `, ${location.state}` : ''}`
+                  ? `${location.city}${
+                      location.state ? `, ${location.state}` : ''
+                    }`
                   : 'Location unavailable'}
               </Text>
             </View>
@@ -145,9 +171,7 @@ export const HomeScreen: React.FC = () => {
         {/* Welcome */}
         <View style={styles.welcome}>
           <Text style={styles.welcomeTitle}>Welcome{`\n`}Back!</Text>
-          <Text style={styles.welcomeSub}>
-            Discover amazing deals near you
-          </Text>
+          <Text style={styles.welcomeSub}>Discover amazing deals near you</Text>
         </View>
 
         {/* Search bar */}
@@ -192,20 +216,36 @@ export const HomeScreen: React.FC = () => {
         {/* Categories */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Browse Categories</Text>
-          <Pressable onPress={handleSeeAllCategories} hitSlop={spacing.sm}>
+          <Pressable
+            onPress={handleSeeAllCategories}
+            hitSlop={spacing.sm}
+            testID="see-all-categories"
+          >
             <Text style={styles.sectionAction}>See all →</Text>
           </Pressable>
         </View>
-        <View style={styles.categoryGrid}>
-          {STUB_CATEGORIES.map(cat => (
-            <View key={cat.id} style={styles.categoryCell}>
-              <CategoryCard
-                name={cat.name}
-                iconName={cat.iconName}
-                onPress={() => handleCategoryPress(cat)}
-              />
-            </View>
-          ))}
+        <View style={styles.categoryGrid} testID="home-category-grid">
+          {categoriesLoading ? (
+            <>
+              <Shimmer width={80} height={80} borderRadius={radius.lg} />
+              <Shimmer width={80} height={80} borderRadius={radius.lg} />
+              <Shimmer width={80} height={80} borderRadius={radius.lg} />
+              <Shimmer width={80} height={80} borderRadius={radius.lg} />
+            </>
+          ) : (
+            topCategories.map(cat => (
+              <View
+                key={cat.id}
+                style={styles.categoryCell}
+                testID={`category-card-${cat.id}`}
+              >
+                <CategoryCard
+                  name={cat.name}
+                  onPress={() => handleCategoryPress(cat)}
+                />
+              </View>
+            ))
+          )}
         </View>
 
         {/* Trending */}
@@ -213,37 +253,38 @@ export const HomeScreen: React.FC = () => {
           <TrendingHeader onActionPress={() => {}} />
         </View>
 
-        {isLoadingTrending ? (
-          <>
-            <ShimmerCard />
-            <ShimmerCard />
-            <Shimmer
-              width="100%"
-              height={layout.cardImage + spacing.xl}
-              borderRadius={radius.lg}
-            />
-          </>
-        ) : trending.length === 0 ? (
-          <View style={styles.emptyTrending}>
-            <Text style={styles.emptyTrendingText}>
-              No trending listings yet — be the first to post!
-            </Text>
-          </View>
-        ) : (
-          trending.map(item => (
-            <ListingCard
-              key={item.id}
-              image={item.image}
-              title={item.title}
-              price={item.price}
-              location={item.location}
-              time={item.time}
-              badge={item.badge}
-              badgeColor={item.badgeColor}
-              onPress={() => handleListingPress(item.id)}
-            />
-          ))
-        )}
+        <View testID="home-trending-list">
+          {isLoadingTrending ? (
+            <>
+              <ShimmerCard />
+              <ShimmerCard />
+              <Shimmer
+                width="100%"
+                height={layout.cardImage + spacing.xl}
+                borderRadius={radius.lg}
+              />
+            </>
+          ) : trending.length === 0 ? (
+            <View style={styles.emptyTrending}>
+              <Text style={styles.emptyTrendingText}>
+                No trending listings yet — be the first to post!
+              </Text>
+            </View>
+          ) : (
+            trending.map(item => (
+              <ListingCard
+                key={item.id}
+                image={item.image}
+                title={item.title}
+                price={item.price}
+                location={item.location}
+                time={item.time}
+                badge={item.badge}
+                onPress={() => handleListingPress(item.id)}
+              />
+            ))
+          )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

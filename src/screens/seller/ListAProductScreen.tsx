@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -29,14 +28,11 @@ import {
   type CategoryPickResult,
   CategoryPickerSheet,
 } from '@/components/marketplace';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
+import { useCreateListingMutation } from '@/api/productsApi';
+import { mapApiError } from '@/utils/errorMapper';
+import type { ListingCondition } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ListProduct'>;
@@ -54,6 +50,20 @@ const CONDITIONS: ConditionOption[] = [
   { key: 'used', label: 'Used' },
   { key: 'parts', label: 'For parts' },
 ];
+
+// The UI's 4-option condition vocabulary doesn't map 1:1 onto the backend's
+// real 5-value enum ('New'|'Like New'|'Good'|'Fair'|'Poor') — there's no
+// exact equivalent for "Used" or "For parts". This is a judgment-call
+// approximation (confirmed with Ayush as an acceptable interim), not a
+// verified product decision: "Used" → "Good" (most used items are still
+// functional/serviceable), "For parts" → "Poor" (the closest existing
+// "worst condition" bucket). Revisit if the backend's enum changes.
+const CONDITION_TO_BACKEND: Record<Condition, ListingCondition> = {
+  new: 'New',
+  like_new: 'Like New',
+  used: 'Good',
+  parts: 'Poor',
+};
 
 const PHOTO_MIN = 1;
 const PHOTO_MAX = 8;
@@ -101,6 +111,10 @@ export const ListAProductScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
   const user = useAppSelector(state => state.auth.user);
+  const location = useAppSelector(state => state.location);
+
+  const { data: categoryTree } = useGetCategoryTreeQuery();
+  const [createListing, { isLoading: submitting }] = useCreateListingMutation();
 
   const [photos, setPhotos] = useState<PhotoSlot[]>([]);
   const [title, setTitle] = useState('');
@@ -111,7 +125,6 @@ export const ListAProductScreen: React.FC = () => {
   const [negotiable, setNegotiable] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
 
   // ---- Validation
   const trimmedTitle = title.trim();
@@ -169,7 +182,8 @@ export const ListAProductScreen: React.FC = () => {
     ]);
     toast.info({
       title: 'Stub photo added',
-      message: 'Real camera + gallery picker ships when the image-picker library lands.',
+      message:
+        'Real camera + gallery picker ships when the image-picker library lands.',
     });
   };
 
@@ -182,17 +196,33 @@ export const ListAProductScreen: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
-    setSubmitting(true);
+    if (!canSubmit || !category || !condition) return;
+    if (location.latitude == null || location.longitude == null) {
+      toast.error({
+        title: 'Location required',
+        message: 'Set your location in your profile before posting.',
+      });
+      return;
+    }
+
     try {
-      // TODO: real POST /listings { title, description, photos, categoryId,
-      // condition, priceInPaise, negotiable, location }. Backend will run
-      // the atomic slot-decrement transaction (see v2 plan §9.4).
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 900));
+      await createListing({
+        title: trimmedTitle,
+        description,
+        price: Math.round(priceNum * 100), // rupees entered in UI → paise on the wire
+        category: category.categoryId,
+        condition: CONDITION_TO_BACKEND[condition],
+        lat: location.latitude,
+        lng: location.longitude,
+        // Photos are dev-only colour-swatch stubs until DN3 (image picker)
+        // ships — a "stub://#hex" string is not a real Cloudinary id, so
+        // sending it would corrupt real listing data. Omit until Phase 3.
+      }).unwrap();
 
       toast.success({
         title: 'Submitted for review',
-        message: 'Aapka listing admin review mein hai. ~24h mein notify karenge.',
+        message:
+          'Aapka listing admin review mein hai. ~24h mein notify karenge.',
       });
 
       // Drop the user on the MyAds tab so they can see their submission in
@@ -201,13 +231,9 @@ export const ListAProductScreen: React.FC = () => {
       // parent nav (same pattern Home uses for Search / Post).
       navigation.popToTop();
       navigation.getParent()?.navigate('MyAds' as never);
-    } catch {
-      toast.error({
-        title: "Couldn't post listing",
-        message: 'Network issue — try again in a moment.',
-      });
-    } finally {
-      setSubmitting(false);
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({ title: "Couldn't post listing", message: mapped.message });
     }
   };
 
@@ -481,6 +507,7 @@ export const ListAProductScreen: React.FC = () => {
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
         initialCategoryId={category?.categoryId}
+        categoryTree={categoryTree}
         onPick={handlePickCategory}
       />
 
@@ -530,9 +557,7 @@ const ToggleOption: React.FC<ToggleOptionProps> = ({
     <View style={[styles.radio, active && styles.radioActive]}>
       {active ? <View style={styles.radioDot} /> : null}
     </View>
-    <Text
-      style={[styles.toggleOptText, active && styles.toggleOptTextActive]}
-    >
+    <Text style={[styles.toggleOptText, active && styles.toggleOptTextActive]}>
       {label}
     </Text>
   </Pressable>

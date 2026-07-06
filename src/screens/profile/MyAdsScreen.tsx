@@ -15,27 +15,33 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
-  Eye,
-  Heart,
   Tag,
   Wallet,
   X,
   XCircle,
 } from 'lucide-react-native';
 import { EmptyState } from '@/components/marketplace';
+import { ShimmerCard } from '@/components/common/Shimmer';
 import { formatINR } from '@/data/packagesCatalog';
 import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+  useGetMyListingsQuery,
+  useDeleteListingMutation,
+} from '@/api/productsApi';
+import { mapApiError } from '@/utils/errorMapper';
+import { useToast } from '@/hooks/useToast';
+import type { Listing } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
+// UI tabs are a client-side simplification of the backend's 7 real listing
+// statuses. `Expired` has no tab of its own — folded into `rejected` (both
+// mean "not currently active, seller should act"), and `Draft`/`Deleted`
+// never appear here (create always lands on `Pending`; deleted listings are
+// soft-deleted and intentionally excluded from `GET /listings/mine`'s own
+// results by nothing — the backend still returns them, so this screen
+// filters them out itself, see `toMyListing`/`isVisibleInMyAds` below).
 type ListingStatus = 'pending' | 'live' | 'rejected' | 'sold';
 
 interface MyListing {
@@ -44,11 +50,9 @@ interface MyListing {
   priceInPaise: number;
   status: ListingStatus;
   postedAtIso: string;
+  isExpired?: boolean;
   // Pending
   reviewEtaHours?: number;
-  // Live
-  viewCount?: number;
-  interestCount?: number;
   // Rejected
   rejectionReason?: string;
   // Sold
@@ -57,76 +61,30 @@ interface MyListing {
   transactionId?: string;
 }
 
-// Stub data — replace with GET /me/listings?status=… once backend ships.
-const STUB_LISTINGS: MyListing[] = [
-  {
-    id: 'l1',
-    title: 'iPhone 13 — 128GB, mint condition',
-    priceInPaise: 4_200_000,
-    status: 'pending',
-    postedAtIso: '2026-05-17',
-    reviewEtaHours: 24,
-  },
-  {
-    id: 'l2',
-    title: 'Honda Activa 6G — 2024 model',
-    priceInPaise: 4_500_000,
-    status: 'live',
-    postedAtIso: '2026-05-12',
-    viewCount: 124,
-    interestCount: 3,
-  },
-  {
-    id: 'l3',
-    title: 'Royal Enfield Classic 350',
-    priceInPaise: 12_500_000,
-    status: 'live',
-    postedAtIso: '2026-05-10',
-    viewCount: 287,
-    interestCount: 8,
-  },
-  {
-    id: 'l4',
-    title: 'Modular sofa set, 6-seater',
-    priceInPaise: 2_000_000,
-    status: 'live',
-    postedAtIso: '2026-05-08',
-    viewCount: 45,
-    interestCount: 1,
-  },
-  {
-    id: 'l5',
-    title: 'Mountain bike — slightly used',
-    priceInPaise: 1_200_000,
-    status: 'rejected',
-    postedAtIso: '2026-05-06',
-    rejectionReason:
-      'Listing title contained a phone number. Please re-post without contact info — buyers get your phone automatically once they tap Buy.',
-  },
-  {
-    id: 'l6',
-    title: 'Old college textbooks (bundle of 12)',
-    priceInPaise: 80_000,
-    status: 'sold',
-    postedAtIso: '2026-04-28',
-    soldToName: 'Rohit S.',
-    soldAtIso: '2026-05-12',
-    transactionId: 'tx_001',
-  },
-  {
-    id: 'l7',
-    title: 'Wooden study table with chair',
-    priceInPaise: 350_000,
-    status: 'sold',
-    postedAtIso: '2026-04-20',
-    soldToName: 'Priya M.',
-    soldAtIso: '2026-05-04',
-    transactionId: 'tx_002',
-  },
-];
+const isVisibleInMyAds = (l: Listing): boolean => l.status !== 'Deleted';
 
-// Stub: replace with derived value from wallet endpoint.
-const STUB_SLOTS_AVAILABLE = 3;
+const toMyListing = (l: Listing): MyListing => {
+  const statusMap: Record<string, ListingStatus> = {
+    Draft: 'pending',
+    Pending: 'pending',
+    Live: 'live',
+    Rejected: 'rejected',
+    Expired: 'rejected',
+    Sold: 'sold',
+  };
+  return {
+    id: l._id,
+    title: l.title,
+    priceInPaise: l.price,
+    status: statusMap[l.status] ?? 'pending',
+    postedAtIso: l.createdAt,
+    isExpired: l.status === 'Expired',
+    rejectionReason: l.rejectionReason,
+    soldAtIso: l.soldAt,
+  };
+};
+
+const EMPTY_LISTINGS: Listing[] = [];
 
 const TABS: Array<{ key: ListingStatus; label: string }> = [
   { key: 'pending', label: 'Pending' },
@@ -145,10 +103,20 @@ const formatShortDate = (iso: string): string => {
 
 export const MyAdsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const toast = useToast();
 
   const [activeTab, setActiveTab] = useState<ListingStatus>('live');
-  const [listings, setListings] = useState<MyListing[]>(STUB_LISTINGS);
   const [rejectionSheet, setRejectionSheet] = useState<MyListing | null>(null);
+
+  const { data, isLoading } = useGetMyListingsQuery();
+  const [deleteListing] = useDeleteListingMutation();
+
+  const rawListings = data?.listings ?? EMPTY_LISTINGS;
+  const listings = useMemo(
+    () => rawListings.filter(isVisibleInMyAds).map(toMyListing),
+    [rawListings],
+  );
+  const slotsAvailable = data?.summary.slotsRemaining ?? 0;
 
   const counts = useMemo(() => {
     const c: Record<ListingStatus, number> = {
@@ -182,10 +150,16 @@ export const MyAdsScreen: React.FC = () => {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            // Optimistic remove. Real backend call ships when DELETE
-            // /listings/:id lands.
-            setListings(prev => prev.filter(l => l.id !== listing.id));
+          onPress: async () => {
+            try {
+              await deleteListing(listing.id).unwrap();
+            } catch (err) {
+              const mapped = mapApiError(err as never);
+              toast.error({
+                title: "Couldn't remove listing",
+                message: mapped.message,
+              });
+            }
           },
         },
       ],
@@ -214,7 +188,7 @@ export const MyAdsScreen: React.FC = () => {
         <Pressable onPress={handleOpenWallet} style={styles.walletChip}>
           <Wallet size={layout.iconSize.sm} color={colors.primary} />
           <Text style={styles.walletChipText}>
-            {STUB_SLOTS_AVAILABLE} slots · Wallet
+            {slotsAvailable} slots · Wallet
           </Text>
           <ChevronRight size={layout.iconSize.sm} color={colors.primary} />
         </Pressable>
@@ -248,8 +222,14 @@ export const MyAdsScreen: React.FC = () => {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        testID="my-ads-list"
       >
-        {visible.length === 0 ? (
+        {isLoading ? (
+          <>
+            <ShimmerCard />
+            <ShimmerCard />
+          </>
+        ) : visible.length === 0 ? (
           <EmptyTabState tab={activeTab} onPostNew={handlePostNew} />
         ) : (
           visible.map(listing => (
@@ -299,10 +279,7 @@ const ListingCard: React.FC<ListingCardProps> = ({
   return (
     <Pressable
       onPress={onOpen}
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-      ]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTopRow}>
         <View
@@ -337,21 +314,10 @@ const ListingCard: React.FC<ListingCardProps> = ({
 
         {listing.status === 'live' ? (
           <View style={styles.liveFooter}>
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Eye size={layout.iconSize.sm} color={colors.textMuted} />
-                <Text style={styles.statText}>{listing.viewCount ?? 0}</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Heart
-                  size={layout.iconSize.sm}
-                  color={colors.textMuted}
-                />
-                <Text style={styles.statText}>
-                  {listing.interestCount ?? 0} interested
-                </Text>
-              </View>
-            </View>
+            {/* View/interest counts aren't tracked by the backend today —
+                see integration docs; showing a fake 0 would be misleading,
+                so this row is intentionally just the Remove action. */}
+            <View style={styles.statsRow} />
             <Pressable
               onPress={onRemove}
               hitSlop={spacing.sm}
@@ -362,26 +328,27 @@ const ListingCard: React.FC<ListingCardProps> = ({
           </View>
         ) : null}
 
-        {listing.status === 'rejected' ? (
+        {listing.status === 'rejected' && listing.isExpired ? (
+          <View style={styles.footerRow}>
+            <Clock size={layout.iconSize.sm} color={colors.textMuted} />
+            <Text style={styles.footerText}>
+              Listing expired — repost to make it live again.
+            </Text>
+          </View>
+        ) : listing.status === 'rejected' ? (
           <Pressable onPress={onSeeReason} style={styles.footerRow}>
             <XCircle size={layout.iconSize.sm} color={colors.error} />
             <Text style={[styles.footerText, styles.footerTextLink]}>
               See rejection reason
             </Text>
-            <ChevronRight
-              size={layout.iconSize.sm}
-              color={colors.error}
-            />
+            <ChevronRight size={layout.iconSize.sm} color={colors.error} />
           </Pressable>
         ) : null}
 
         {listing.status === 'sold' ? (
           <View>
             <View style={styles.footerRow}>
-              <CheckCircle2
-                size={layout.iconSize.sm}
-                color={colors.success}
-              />
+              <CheckCircle2 size={layout.iconSize.sm} color={colors.success} />
               <Text style={styles.footerText}>
                 Sold to {listing.soldToName ?? 'a buyer'}
                 {listing.soldAtIso
@@ -491,13 +458,12 @@ const RejectionReasonSheet: React.FC<RejectionReasonSheetProps> = ({
             <View style={styles.sheetReasonBox}>
               <XCircle size={layout.iconSize.base} color={colors.error} />
               <Text style={styles.sheetReasonText}>
-                {listing.rejectionReason ??
-                  'Admin did not provide a reason.'}
+                {listing.rejectionReason ?? 'Admin did not provide a reason.'}
               </Text>
             </View>
             <Text style={styles.sheetHint}>
-              Listings are immutable — rejected listings can't be edited.
-              Aap naya listing post kar sakte ho (1 slot consume hoga).
+              Listings are immutable — rejected listings can't be edited. Aap
+              naya listing post kar sakte ho (1 slot consume hoga).
             </Text>
             <Pressable
               onPress={onRepost}
@@ -517,7 +483,15 @@ const RejectionReasonSheet: React.FC<RejectionReasonSheetProps> = ({
 
 // ---- Helpers ----------------------------------------------------------------
 
-const STUB_PALETTE = ['#2BB32A', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#EC4899'];
+const STUB_PALETTE = [
+  '#2BB32A',
+  '#3B82F6',
+  '#F59E0B',
+  '#EF4444',
+  '#8B5CF6',
+  '#10B981',
+  '#EC4899',
+];
 
 const stubThumbColour = (id: string): string => {
   let hash = 0;
