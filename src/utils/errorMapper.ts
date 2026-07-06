@@ -10,8 +10,9 @@ export type NormalizedError = {
 };
 
 const FALLBACK_MESSAGE = 'Something went wrong. Please try again.';
-const NETWORK_MESSAGE = 'Internet connection check karein.';
-const SERVER_MESSAGE = 'Server issue, try again later.';
+const NETWORK_MESSAGE = 'Check your internet connection and try again.';
+const SERVER_MESSAGE =
+  "Something's not right on our end. Please try again shortly.";
 
 export const mapApiError = (
   err: FetchBaseQueryError | SerializedError | undefined,

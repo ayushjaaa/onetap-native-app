@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
-  Animated,
   Dimensions,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -24,37 +23,24 @@ import {
   Clock,
   Heart,
   ImageOff,
-  Info,
   MapPin,
-  MessageCircle,
   MoreVertical,
-  Phone,
   Share2,
-  ShieldCheck,
   ShoppingBag,
   Trash2,
-  Users,
   X,
   XCircle,
 } from 'lucide-react-native';
 import { useToast } from '@/hooks/useToast';
-import { formatINR } from '@/data/packagesCatalog';
+import { formatRelativeShort } from '@/data/listingsStub';
 import {
-  findStubListing,
-  formatRelativeShort,
-  type InterestedBuyer,
-  isOwnedByCurrentSeller,
-  stubThumbColour,
-  type StubListing,
-} from '@/data/listingsStub';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+  useGetListingByIdQuery,
+  useDeleteListingMutation,
+} from '@/api/productsApi';
+import { mapApiError } from '@/utils/errorMapper';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import type { Listing } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ListingDetail'>;
@@ -63,34 +49,45 @@ type Props = NativeStackScreenProps<MainStackParamList, 'ListingDetail'>;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GALLERY_HEIGHT = SCREEN_WIDTH * 0.85;
 
-const HOLD_TO_CONFIRM_MS = 1000;
+const formatPricePaise = (paise: number): string =>
+  `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
 
 // ---- Screen -----------------------------------------------------------------
 
 export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
+  const user = useAppSelector(state => state.auth.user);
 
-  // TODO: replace with `useGetListingQuery(listingId)` once the listings
-  // service ships. For v1 we look up against the in-memory stub set so
-  // both MyAds → ListingDetail (seller view) and Home → ListingDetail
-  // (buyer view) can be exercised end-to-end with consistent data.
-  const baseListing = findStubListing(route.params.listingId);
-
-  const [listing, setListing] = useState<StubListing | null>(
-    baseListing ?? null,
+  // Seller callers (MyAdsScreen) pass the already-fetched Listing directly —
+  // GET /listings/:id is public and only returns Live/Sold listings, so a
+  // seller opening their own Pending/Rejected listing would 404 if this
+  // screen always re-fetched by id. Only fetch when nothing was passed
+  // (e.g. a future buyer-mode/deep-link caller).
+  const passedListing = route.params.listing;
+  const { data: fetchedListing, isLoading } = useGetListingByIdQuery(
+    route.params.listingId,
+    { skip: !!passedListing },
   );
-  const [activeImage, setActiveImage] = useState(0);
-  const [isFavorite, setIsFavorite] = useState(false);
-  const [hasExpressedInterest, setHasExpressedInterest] = useState(false);
+  const listing = passedListing ?? fetchedListing ?? null;
+
+  const [deleteListing, { isLoading: removing }] = useDeleteListingMutation();
+  const isSellerMode = !!user && listing?.sellerId === user.id;
   const [menuOpen, setMenuOpen] = useState(false);
   const [rejectionOpen, setRejectionOpen] = useState(false);
-  const [sellTarget, setSellTarget] = useState<InterestedBuyer | null>(null);
-  const [buyConfirmOpen, setBuyConfirmOpen] = useState(false);
-  const [buyConfirming, setBuyConfirming] = useState(false);
 
   // Defensive: unknown listingId renders an inline error frame instead of
   // crashing on undefined access.
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.centeredError}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!listing) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -111,55 +108,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
-  const isSellerMode = isOwnedByCurrentSeller(listing);
-  const isUnavailable = listing.status === 'sold';
-
-  const handleBuyTap = () => {
-    if (isUnavailable || hasExpressedInterest) return;
-    setBuyConfirmOpen(true);
-  };
-
-  const handleBuyConfirm = async () => {
-    if (buyConfirming) return;
-    setBuyConfirming(true);
-    try {
-      // TODO: real POST /listings/:id/interest with an idempotency key.
-      // Backend uses an upsert on (listingId, buyerId), so a network retry
-      // resolves to the same Interest row instead of spamming the seller.
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 600));
-
-      setHasExpressedInterest(true);
-      setBuyConfirmOpen(false);
-      toast.success({
-        title: 'Interest sent',
-        message: `${listing.seller.name} ko notify kar diya. Chat ya call ready hai.`,
-      });
-    } catch {
-      toast.error({
-        title: "Couldn't send interest",
-        message: 'Network issue — phir try karein.',
-      });
-    } finally {
-      setBuyConfirming(false);
-    }
-  };
-
-  const handleCallSeller = () => {
-    // TODO: deep-link to the dialer via Linking.openURL(`tel:${phone}`) once
-    // we accept the privacy implication on this screen.
-    toast.info({
-      title: `Call ${listing.seller.name}`,
-      message: listing.seller.phone,
-    });
-  };
-
-  const handleOpenChat = () => {
-    navigation.navigate('ChatConversation', {
-      listingId: listing.id,
-      counterpartyId: listing.seller.id,
-      counterpartyName: listing.seller.name,
-    });
-  };
+  const isUnavailable = listing.status === 'Sold';
 
   const handleRemove = () => {
     setMenuOpen(false);
@@ -171,36 +120,29 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            toast.success({ title: 'Listing removed' });
-            navigation.goBack();
+          onPress: async () => {
+            try {
+              await deleteListing(listing._id).unwrap();
+              toast.success({ title: 'Listing removed' });
+              navigation.goBack();
+            } catch (err) {
+              const mapped = mapApiError(err as never);
+              toast.error({
+                title: "Couldn't remove listing",
+                message: mapped.message,
+              });
+            }
           },
         },
       ],
     );
   };
 
-  const handleSellTo = (buyer: InterestedBuyer) => setSellTarget(buyer);
-
-  const handleSellConfirmed = () => {
-    if (!sellTarget) return;
-    // Optimistic local update — real backend transaction lands later.
-    setListing(prev =>
-      prev
-        ? {
-            ...prev,
-            status: 'sold',
-            soldToName: sellTarget.name,
-            soldAtIso: new Date().toISOString(),
-          }
-        : prev,
-    );
-    setSellTarget(null);
-    toast.success({
-      title: 'Sale recorded',
-      message: `Sold to ${sellTarget.name}. Slot wapas Wallet mein add ho gaya.`,
-    });
-  };
+  // Photos are Cloudinary public_ids, not ready-to-render URLs — there's no
+  // buildCloudinaryUrl() helper yet (see integration docs). Real listings
+  // don't have photos wired end-to-end today, so the gallery always shows
+  // the fallback state rather than attempting to render a broken URI.
+  const hasPhotos = false;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -210,31 +152,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       >
         {/* Gallery */}
         <View style={styles.galleryWrap}>
-          {listing.images.length > 0 ? (
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={e => {
-                const idx = Math.round(
-                  e.nativeEvent.contentOffset.x / SCREEN_WIDTH,
-                );
-                setActiveImage(idx);
-              }}
-            >
-              {listing.images.map((uri, i) => (
-                <Image
-                  key={i}
-                  source={{ uri }}
-                  style={[
-                    styles.galleryImage,
-                    listing.status === 'sold' && styles.galleryDim,
-                  ]}
-                  resizeMode="cover"
-                />
-              ))}
-            </ScrollView>
-          ) : (
+          {hasPhotos ? null : (
             <View style={[styles.galleryImage, styles.galleryFallback]}>
               <ImageOff size={layout.iconSize.xl} color={colors.textMuted} />
             </View>
@@ -253,6 +171,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             <View style={styles.topBarRight}>
               {isSellerMode ? (
                 <Pressable
+                  testID="listing-detail-menu-button"
                   onPress={() => setMenuOpen(true)}
                   hitSlop={spacing.md}
                   style={styles.iconBtn}
@@ -265,78 +184,51 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               ) : (
                 <>
                   <Pressable
-                    onPress={() => setIsFavorite(prev => !prev)}
+                    onPress={() =>
+                      toast.info({
+                        title: 'Not available yet',
+                        message:
+                          'Favorites aren’t supported by the backend yet.',
+                      })
+                    }
                     hitSlop={spacing.md}
                     style={styles.iconBtn}
                   >
-                    <Heart
-                      size={layout.iconSize.md}
-                      color={isFavorite ? colors.error : colors.white}
-                      fill={isFavorite ? colors.error : 'transparent'}
-                    />
+                    <Heart size={layout.iconSize.md} color={colors.white} />
                   </Pressable>
                   <Pressable hitSlop={spacing.md} style={styles.iconBtn}>
-                    <Share2
-                      size={layout.iconSize.md}
-                      color={colors.white}
-                    />
+                    <Share2 size={layout.iconSize.md} color={colors.white} />
                   </Pressable>
                 </>
               )}
             </View>
           </View>
-
-          {listing.images.length > 1 ? (
-            <View style={styles.dots}>
-              {listing.images.map((_, i) => (
-                <View
-                  key={i}
-                  style={[styles.dot, i === activeImage && styles.dotActive]}
-                />
-              ))}
-            </View>
-          ) : null}
         </View>
 
         {/* Status banner (seller mode only — buyers don't need to see it) */}
         {isSellerMode ? (
           <StatusBanner
-            status={listing.status}
-            viewCount={listing.viewCount}
-            soldToName={listing.soldToName}
-            soldAtIso={listing.soldAtIso}
-            reviewEtaHours={listing.reviewEtaHours}
+            listing={listing}
             onSeeReason={() => setRejectionOpen(true)}
           />
         ) : null}
 
         {/* Body */}
         <View style={styles.body}>
-          <Text style={styles.price}>{formatINR(listing.priceInPaise)}</Text>
+          <Text style={styles.price}>{formatPricePaise(listing.price)}</Text>
           <Text style={styles.title}>{listing.title}</Text>
-
-          {!isSellerMode &&
-          listing.interestCount &&
-          listing.interestCount > 0 ? (
-            <View style={styles.interestPill}>
-              <Users size={layout.iconSize.sm} color={colors.warning} />
-              <Text style={styles.interestPillText}>
-                {listing.interestCount}{' '}
-                {listing.interestCount === 1 ? 'person' : 'people'} already
-                interested
-              </Text>
-            </View>
-          ) : null}
 
           <View style={styles.metaRow}>
             <View style={styles.metaItem}>
               <MapPin size={layout.iconSize.sm} color={colors.textMuted} />
-              <Text style={styles.metaText}>{listing.location}</Text>
+              <Text style={styles.metaText}>
+                {listing.address ?? 'Location not set'}
+              </Text>
             </View>
             <View style={styles.metaItem}>
               <Clock size={layout.iconSize.sm} color={colors.textMuted} />
               <Text style={styles.metaText}>
-                {formatRelativeShort(listing.postedAtIso)}
+                {formatRelativeShort(listing.createdAt)}
               </Text>
             </View>
           </View>
@@ -353,56 +245,15 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           <Text style={styles.sectionTitle}>Description</Text>
           <Text style={styles.description}>{listing.description}</Text>
 
-          {/* Seller-only: Interested buyers (Live only) */}
-          {isSellerMode && listing.status === 'live' ? (
-            <InterestedBuyersSection
-              buyers={listing.interestedBuyers ?? []}
-              onSellTo={handleSellTo}
-              onChat={buyer => {
-                navigation.navigate('ChatConversation', {
-                  listingId: listing.id,
-                  counterpartyId: buyer.id,
-                  counterpartyName: buyer.name,
-                });
-              }}
-            />
-          ) : null}
-
-          {/* Buyer-only: Seller card */}
-          {!isSellerMode ? (
-            <>
-              <Text style={styles.sectionTitle}>Seller</Text>
-              <View style={styles.sellerCard}>
-                <View style={styles.sellerAvatar}>
-                  <Text style={styles.sellerAvatarText}>
-                    {listing.seller.name.charAt(0)}
-                  </Text>
-                </View>
-                <View style={styles.sellerInfo}>
-                  <View style={styles.sellerNameRow}>
-                    <Text style={styles.sellerName}>{listing.seller.name}</Text>
-                    {listing.seller.isVerified ? (
-                      <ShieldCheck
-                        size={layout.iconSize.sm}
-                        color={colors.success}
-                      />
-                    ) : null}
-                  </View>
-                  <Text style={styles.sellerMeta}>
-                    {listing.seller.memberSince}
-                  </Text>
-                </View>
-              </View>
-            </>
-          ) : null}
+          {/* Buyer-side: express interest, chat, seller card, and the
+              interested-buyers/sell-to-buyer seller section are all out of
+              scope for this pass — see integration docs. This screen is
+              currently only wired for the seller viewing their own
+              listing's status and removing it. */}
         </View>
       </ScrollView>
 
-      {/* Sticky bottom bar — buyer mode only.
-          Three states:
-            unavailable    → disabled "No longer available" card
-            !interest      → single full-width "Buy this product" CTA
-            after interest → Chat + Call (phone already revealed)        */}
+      {/* Sticky bottom bar — buyer mode only. */}
       {!isSellerMode ? (
         <View style={styles.bottomBar}>
           {isUnavailable ? (
@@ -412,9 +263,14 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 This product is no longer available
               </Text>
             </View>
-          ) : !hasExpressedInterest ? (
+          ) : (
             <Pressable
-              onPress={handleBuyTap}
+              onPress={() =>
+                toast.info({
+                  title: 'Not available yet',
+                  message: 'Expressing interest isn’t wired up yet.',
+                })
+              }
               style={({ pressed }) => [
                 styles.buyBtn,
                 pressed && styles.buyBtnPressed,
@@ -422,10 +278,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               accessibilityRole="button"
               accessibilityLabel="Buy this product, cash on delivery"
             >
-              <ShoppingBag
-                size={layout.iconSize.md}
-                color={colors.white}
-              />
+              <ShoppingBag size={layout.iconSize.md} color={colors.white} />
               <View style={styles.buyTextWrap}>
                 <Text style={styles.buyTextPrimary}>Buy this product</Text>
                 <Text style={styles.buyTextSecondary}>
@@ -433,30 +286,6 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 </Text>
               </View>
             </Pressable>
-          ) : (
-            <>
-              <Pressable
-                style={styles.chatBtn}
-                onPress={handleOpenChat}
-                hitSlop={spacing.sm}
-              >
-                <MessageCircle
-                  size={layout.iconSize.md}
-                  color={colors.textPrimary}
-                />
-                <Text style={styles.chatText}>Chat</Text>
-              </Pressable>
-              <Pressable
-                style={styles.callBtn}
-                onPress={handleCallSeller}
-                hitSlop={spacing.sm}
-              >
-                <Phone size={layout.iconSize.md} color={colors.white} />
-                <Text style={styles.callText} numberOfLines={1}>
-                  Call · {listing.seller.phone}
-                </Text>
-              </Pressable>
-            </>
           )}
         </View>
       ) : null}
@@ -473,9 +302,10 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           onPress={() => setMenuOpen(false)}
         >
           <View style={styles.menuPanel}>
-            {listing.status === 'live' ? (
+            {listing.status === 'Live' || listing.status === 'Pending' ? (
               <Pressable
                 onPress={handleRemove}
+                disabled={removing}
                 style={({ pressed }) => [
                   styles.menuItem,
                   pressed && styles.menuItemPressed,
@@ -483,7 +313,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               >
                 <Trash2 size={layout.iconSize.sm} color={colors.error} />
                 <Text style={[styles.menuItemText, styles.menuItemDanger]}>
-                  Remove listing
+                  {removing ? 'Removing…' : 'Remove listing'}
                 </Text>
               </Pressable>
             ) : null}
@@ -530,30 +360,11 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             </Text>
           </View>
           <Text style={styles.sheetHint}>
-            Listings are immutable — rejected listings can't be edited.
-            Naya listing post karein (1 slot consume hoga).
+            Listings are immutable — rejected listings can't be edited. Naya
+            listing post karein (1 slot consume hoga).
           </Text>
         </View>
       </Modal>
-
-      {/* Sell-to confirm modal with hold-to-confirm */}
-      <SellToConfirmModal
-        buyer={sellTarget}
-        onClose={() => setSellTarget(null)}
-        onConfirmed={handleSellConfirmed}
-      />
-
-      {/* Buy confirm bottom sheet (buyer mode entry to Express Interest) */}
-      <BuyConfirmSheet
-        visible={buyConfirmOpen}
-        listing={listing}
-        confirming={buyConfirming}
-        onCancel={() => {
-          if (buyConfirming) return;
-          setBuyConfirmOpen(false);
-        }}
-        onConfirm={handleBuyConfirm}
-      />
     </SafeAreaView>
   );
 };
@@ -561,43 +372,33 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 // ---- Subcomponents ----------------------------------------------------------
 
 interface StatusBannerProps {
-  status: StubListing['status'];
-  viewCount?: number;
-  soldToName?: string;
-  soldAtIso?: string;
-  reviewEtaHours?: number;
+  listing: Listing;
   onSeeReason: () => void;
 }
 
 const StatusBanner: React.FC<StatusBannerProps> = ({
-  status,
-  viewCount,
-  soldToName,
-  soldAtIso,
-  reviewEtaHours,
+  listing,
   onSeeReason,
 }) => {
-  if (status === 'pending') {
+  const { status, soldAt, expiredAt } = listing;
+
+  if (status === 'Pending') {
     return (
       <View style={[styles.statusBanner, styles.statusPending]}>
         <Clock size={layout.iconSize.sm} color={colors.warning} />
-        <Text style={styles.statusText}>
-          Pending admin review. Live in ~{reviewEtaHours ?? 24}h
-        </Text>
+        <Text style={styles.statusText}>Pending admin review.</Text>
       </View>
     );
   }
-  if (status === 'live') {
+  if (status === 'Live') {
     return (
       <View style={[styles.statusBanner, styles.statusLive]}>
         <CheckCircle2 size={layout.iconSize.sm} color={colors.success} />
-        <Text style={styles.statusText}>
-          Live · {viewCount ?? 0} {viewCount === 1 ? 'view' : 'views'}
-        </Text>
+        <Text style={styles.statusText}>Live</Text>
       </View>
     );
   }
-  if (status === 'rejected') {
+  if (status === 'Rejected') {
     return (
       <Pressable
         onPress={onSeeReason}
@@ -611,284 +412,28 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
       </Pressable>
     );
   }
-  if (status === 'sold') {
+  if (status === 'Expired') {
+    return (
+      <View style={[styles.statusBanner, styles.statusRejected]}>
+        <Clock size={layout.iconSize.sm} color={colors.textMuted} />
+        <Text style={styles.statusText}>
+          Expired{expiredAt ? ` on ${formatRelativeShort(expiredAt)}` : ''} —
+          repost to make it live again.
+        </Text>
+      </View>
+    );
+  }
+  if (status === 'Sold') {
     return (
       <View style={[styles.statusBanner, styles.statusSold]}>
         <CheckCircle2 size={layout.iconSize.sm} color={colors.textMuted} />
         <Text style={styles.statusText}>
-          Sold {soldAtIso ? `on ${formatRelativeShort(soldAtIso)}` : ''}
-          {soldToName ? ` to ${soldToName}` : ''}
+          Sold {soldAt ? `on ${formatRelativeShort(soldAt)}` : ''}
         </Text>
       </View>
     );
   }
   return null;
-};
-
-interface InterestedBuyersSectionProps {
-  buyers: InterestedBuyer[];
-  onSellTo: (buyer: InterestedBuyer) => void;
-  onChat: (buyer: InterestedBuyer) => void;
-}
-
-const InterestedBuyersSection: React.FC<InterestedBuyersSectionProps> = ({
-  buyers,
-  onSellTo,
-  onChat,
-}) => {
-  return (
-    <View style={styles.buyersBlock}>
-      <Text style={styles.sectionTitle}>
-        Interested buyers
-        {buyers.length > 0 ? ` · ${buyers.length}` : ''}
-      </Text>
-      {buyers.length === 0 ? (
-        <View style={styles.buyersEmpty}>
-          <Text style={styles.buyersEmptyText}>
-            No buyers yet — share your listing.
-          </Text>
-        </View>
-      ) : (
-        buyers.map(buyer => (
-          <View key={buyer.id} style={styles.buyerRow}>
-            <View style={styles.buyerAvatar}>
-              <Text style={styles.buyerAvatarText}>{buyer.initial}</Text>
-            </View>
-            <View style={styles.buyerInfo}>
-              <View style={styles.buyerNameRow}>
-                <Text style={styles.buyerName}>{buyer.name}</Text>
-                <Text style={styles.buyerTime}>
-                  {formatRelativeShort(buyer.interestedAtIso)}
-                </Text>
-              </View>
-              <Text style={styles.buyerLocation}>
-                {buyer.locationLabel} · {buyer.distanceKm} km
-              </Text>
-              <View style={styles.buyerBtns}>
-                <Pressable
-                  onPress={() => onChat(buyer)}
-                  style={styles.buyerChatBtn}
-                >
-                  <Text style={styles.buyerChatText}>Chat</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => onSellTo(buyer)}
-                  style={styles.buyerSellBtn}
-                >
-                  <Text style={styles.buyerSellText}>
-                    Sell to this buyer
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        ))
-      )}
-    </View>
-  );
-};
-
-interface SellToConfirmModalProps {
-  buyer: InterestedBuyer | null;
-  onClose: () => void;
-  onConfirmed: () => void;
-}
-
-const SellToConfirmModal: React.FC<SellToConfirmModalProps> = ({
-  buyer,
-  onClose,
-  onConfirmed,
-}) => {
-  const visible = !!buyer;
-  const progress = useRef(new Animated.Value(0)).current;
-  const [holding, setHolding] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!visible) {
-      // Reset progress whenever modal closes / re-opens.
-      progress.stopAnimation();
-      progress.setValue(0);
-      setHolding(false);
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    }
-  }, [visible, progress]);
-
-  const startHold = () => {
-    setHolding(true);
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: HOLD_TO_CONFIRM_MS,
-      useNativeDriver: false,
-    }).start();
-    timerRef.current = setTimeout(() => {
-      onConfirmed();
-    }, HOLD_TO_CONFIRM_MS);
-  };
-
-  const cancelHold = () => {
-    setHolding(false);
-    Animated.timing(progress, {
-      toValue: 0,
-      duration: 150,
-      useNativeDriver: false,
-    }).start();
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  const progressWidth = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
-
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.confirmBackdrop}>
-        <View style={styles.confirmCard}>
-          <Text style={styles.confirmTitle}>
-            Confirm sale to {buyer?.name ?? 'this buyer'}?
-          </Text>
-          <Text style={styles.confirmBody}>
-            Once confirmed, listing ko "Sold" mark kar diya jayega. Doosre
-            interested buyers ko notify hoga.
-          </Text>
-          <View style={styles.confirmHint}>
-            <CheckCircle2
-              size={layout.iconSize.sm}
-              color={colors.primary}
-            />
-            <Text style={styles.confirmHintText}>
-              Ye action ek slot free karega aapke Wallet mein.
-            </Text>
-          </View>
-          <View style={styles.confirmBtnRow}>
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.confirmCancelBtn,
-                pressed && styles.cardPressed,
-              ]}
-            >
-              <Text style={styles.confirmCancelText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPressIn={startHold}
-              onPressOut={cancelHold}
-              style={styles.confirmHoldBtn}
-              accessibilityLabel="Hold to confirm sale"
-            >
-              <Animated.View
-                style={[styles.confirmHoldFill, { width: progressWidth }]}
-              />
-              <Text style={styles.confirmHoldText}>
-                {holding ? 'Hold…' : 'Hold to confirm sale'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-interface BuyConfirmSheetProps {
-  visible: boolean;
-  listing: StubListing;
-  confirming: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}
-
-const BuyConfirmSheet: React.FC<BuyConfirmSheetProps> = ({
-  visible,
-  listing,
-  confirming,
-  onCancel,
-  onConfirm,
-}) => {
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onCancel}
-    >
-      <Pressable style={styles.sheetBackdrop} onPress={onCancel} />
-      <View style={styles.buySheet}>
-        <View style={styles.sheetHandle} />
-
-        <View style={styles.buyRecap}>
-          <View
-            style={[
-              styles.buyRecapThumb,
-              { backgroundColor: stubThumbColour(listing.id) },
-            ]}
-          />
-          <View style={styles.buyRecapText}>
-            <Text style={styles.buyRecapTitle} numberOfLines={1}>
-              {listing.title}
-            </Text>
-          </View>
-          <Text style={styles.buyRecapPrice}>
-            {formatINR(listing.priceInPaise)}
-          </Text>
-        </View>
-
-        <Text style={styles.buySheetHeading}>Confirm interest</Text>
-
-        <Text style={styles.buySheetBody}>
-          Seller ko aapki interest dikh jayegi. Aap unhe direct chat ya
-          call kar sakte ho. Confirm karte hi aapka phone number unke
-          saath share ho jayega.
-        </Text>
-
-        <View style={styles.buyPrivacyCard}>
-          <Info size={layout.iconSize.sm} color={colors.primary} />
-          <Text style={styles.buyPrivacyText}>
-            Cash on Delivery only. App se koi payment nahi hoti.
-          </Text>
-        </View>
-
-        <View style={styles.buyBtnRow}>
-          <Pressable
-            onPress={onCancel}
-            disabled={confirming}
-            style={({ pressed }) => [
-              styles.buyCancelBtn,
-              confirming && styles.buyCancelBtnDisabled,
-              pressed && !confirming && styles.cardPressed,
-            ]}
-          >
-            <Text style={styles.buyCancelText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            onPress={onConfirm}
-            disabled={confirming}
-            style={({ pressed }) => [
-              styles.buyConfirmBtn,
-              confirming && styles.buyConfirmBtnLoading,
-              pressed && !confirming && styles.cardPressed,
-            ]}
-          >
-            <Text style={styles.buyConfirmText}>
-              {confirming ? 'Sending…' : 'Confirm interest'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
 };
 
 const cardPressed = { opacity: 0.9, transform: [{ scale: 0.99 }] } as const;

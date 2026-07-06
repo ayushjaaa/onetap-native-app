@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import RazorpayCheckout from 'react-native-razorpay';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type {
@@ -21,15 +22,14 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
-import { findPackage, formatINR } from '@/data/packagesCatalog';
+import { formatINR } from '@/data/packagesCatalog';
 import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+  useInitiatePackagePurchaseMutation,
+  useVerifyPaymentMutation,
+} from '@/api/walletApi';
+import { mapApiError } from '@/utils/errorMapper';
+import type { WalletPackage } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'PaymentResult'>;
@@ -37,38 +37,79 @@ type Props = NativeStackScreenProps<MainStackParamList, 'PaymentResult'>;
 
 type PaymentState = 'loading' | 'success' | 'failure' | 'pending';
 
-const LOADING_MS = 1500;
-
 export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<Nav>();
   const { packageId } = route.params;
   const user = useAppSelector(state => state.auth.user);
-  const pkg = findPackage(packageId);
+
+  const [initiatePurchase] = useInitiatePackagePurchaseMutation();
+  const [verifyPayment] = useVerifyPaymentMutation();
 
   const [state, setState] = useState<PaymentState>('loading');
   const [failureReason, setFailureReason] = useState<string | null>(null);
+  const [pkg, setPkg] = useState<WalletPackage | null>(null);
 
-  const runPayment = useCallback(() => {
+  const runPayment = useCallback(async () => {
     setState('loading');
     setFailureReason(null);
 
-    // TODO: replace with real Razorpay SDK handoff + signature verify.
-    // For dev: always succeed after LOADING_MS so the funnel can be tested
-    // end-to-end. To exercise other branches manually, comment one of these
-    // and uncomment another.
-    const timer = setTimeout(() => {
-      setState('success');
-      // setState('failure'); setFailureReason('Card was declined.');
-      // setState('pending');
-    }, LOADING_MS);
+    try {
+      // 1. Server creates a real Razorpay order, priced from its own
+      //    catalog — the client only ever sends packageId, never a price.
+      const order = await initiatePurchase({ packageId }).unwrap();
+      setPkg(order.package);
 
-    return () => clearTimeout(timer);
-  }, []);
+      // 2. Hand off to the native Razorpay Checkout SDK.
+      const checkoutResult = await RazorpayCheckout.open({
+        description: `${order.package.name} pack — ${order.package.postCredits} listing slots`,
+        currency: order.currency,
+        key: order.keyId,
+        amount: String(order.amount),
+        order_id: order.razorpayOrderId,
+        name: 'OneTap365',
+        prefill: {
+          email: user?.email,
+          name: user?.name,
+        },
+        theme: { color: colors.primary },
+      });
+
+      // 3. Confirm the signed payment with the backend. This never moves
+      //    money itself — the wallet is credited by the verified webhook —
+      //    it just authenticates the Checkout SDK's callback and reports
+      //    where the order currently stands.
+      const verifyResult = await verifyPayment({
+        razorpay_order_id: checkoutResult.razorpay_order_id,
+        razorpay_payment_id: checkoutResult.razorpay_payment_id,
+        razorpay_signature: checkoutResult.razorpay_signature,
+      }).unwrap();
+
+      if (verifyResult.status === 'paid') {
+        setState('success');
+      } else if (verifyResult.status === 'processing') {
+        setState('pending');
+      } else {
+        setState('failure');
+        setFailureReason('Payment could not be confirmed.');
+      }
+    } catch (err) {
+      // RazorpayCheckout.open rejects with { code, description } on
+      // cancel/failure — a plain object, not an RTK Query error shape.
+      const razorpayErr = err as { code?: number; description?: string };
+      if (razorpayErr?.description) {
+        setState('failure');
+        setFailureReason(razorpayErr.description);
+        return;
+      }
+      const mapped = mapApiError(err as never);
+      setState('failure');
+      setFailureReason(mapped.message);
+    }
+  }, [packageId, initiatePurchase, verifyPayment, user]);
 
   // Kick off payment on mount.
   useEffect(() => {
-    const cleanup = runPayment();
-    return cleanup;
+    void runPayment();
   }, [runPayment]);
 
   // Block Android hardware back while loading — exiting mid-payment would be
@@ -83,8 +124,23 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
     }, [state]),
   );
 
-  // Defensive: an unknown packageId shouldn't crash the screen.
-  if (!pkg) {
+  if (state === 'loading') {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Preparing secure payment…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Defensive: `pkg` is only populated once initiatePurchase succeeds, so a
+  // `success` state with no `pkg` would mean something internally
+  // inconsistent happened. `failure`/`pending` states don't need `pkg` at
+  // all (e.g. initiatePurchase itself can fail with pkg still null) and
+  // must fall through to their own views below instead of showing this.
+  if (state === 'success' && !pkg) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.center}>
@@ -104,17 +160,6 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
-  if (state === 'loading') {
-    return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Preparing secure payment…</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
@@ -128,12 +173,10 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
       </View>
 
       <View style={styles.content}>
-        {state === 'success' ? (
+        {state === 'success' && pkg ? (
           <SuccessView pkg={pkg} email={user?.email ?? undefined} />
         ) : null}
-        {state === 'failure' ? (
-          <FailureView reason={failureReason} />
-        ) : null}
+        {state === 'failure' ? <FailureView reason={failureReason} /> : null}
         {state === 'pending' ? <PendingView /> : null}
       </View>
 
@@ -175,9 +218,7 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
               hitSlop={spacing.md}
               style={styles.secondaryBtn}
             >
-              <Text style={styles.secondaryBtnText}>
-                Pick a different pack
-              </Text>
+              <Text style={styles.secondaryBtnText}>Pick a different pack</Text>
             </Pressable>
           </>
         ) : null}
@@ -204,7 +245,7 @@ interface SuccessViewProps {
   pkg: {
     name: string;
     priceInPaise: number;
-    postSlots: number;
+    postCredits: number;
   };
   email?: string;
 }
@@ -216,15 +257,13 @@ const SuccessView: React.FC<SuccessViewProps> = ({ pkg, email }) => (
     </View>
     <Text style={styles.title}>Payment successful</Text>
     <Text style={styles.summary}>
-      {pkg.name} Pack · {formatINR(pkg.priceInPaise)} · {pkg.postSlots}{' '}
-      {pkg.postSlots === 1 ? 'slot' : 'slots'} added
+      {pkg.name} Pack · {formatINR(pkg.priceInPaise)} · {pkg.postCredits}{' '}
+      {pkg.postCredits === 1 ? 'slot' : 'slots'} added
     </Text>
     {email ? (
       <View style={styles.receiptRow}>
         <Mail size={layout.iconSize.sm} color={colors.textMuted} />
-        <Text style={styles.receiptText}>
-          GST receipt sent to {email}
-        </Text>
+        <Text style={styles.receiptText}>GST receipt sent to {email}</Text>
       </View>
     ) : null}
   </>
@@ -237,7 +276,7 @@ const FailureView: React.FC<{ reason?: string | null }> = ({ reason }) => (
     </View>
     <Text style={styles.title}>Payment didn't go through</Text>
     <Text style={styles.body}>
-      {reason ?? "Something went wrong on the payment side."} {`\n`}
+      {reason ?? 'Something went wrong on the payment side.'} {`\n`}
       Aapse koi paise nahi liye.
     </Text>
   </>
@@ -250,8 +289,8 @@ const PendingView: React.FC = () => (
     </View>
     <Text style={styles.title}>Payment status unclear</Text>
     <Text style={styles.body}>
-      Agar paise kate hain, hum 30 min ke andar refund karenge ya pack
-      activate kar denge. My Packages mein check kar sakte ho.
+      Agar paise kate hain, hum 30 min ke andar refund karenge ya pack activate
+      kar denge. My Packages mein check kar sakte ho.
     </Text>
   </>
 );

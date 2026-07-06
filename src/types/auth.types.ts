@@ -90,23 +90,31 @@ export interface UpdateProfileResponse {
 }
 
 export interface SendOtpRequest {
-  phone: string;
+  phone?: string;
 }
 
 export interface SendOtpResponse {
   success: boolean;
+  statusCode: number;
   message: string;
+  data: {
+    expiresInSeconds: number;
+  };
 }
 
+export type ResendOtpResponse = SendOtpResponse;
+
 export interface VerifyOtpRequest {
-  phone: string;
-  otp: string;
+  code: string;
 }
 
 export interface VerifyOtpResponse {
   success: boolean;
-  verified: boolean;
+  statusCode: number;
   message: string;
+  data: {
+    phoneVerified: true;
+  };
 }
 
 export interface GoogleSignInRequest {

@@ -15,9 +15,18 @@ export interface ResolvedLocation extends Coordinates {
 export const locationService = {
   /**
    * Get current GPS coordinates. Caller must ensure permission is granted.
-   * Times out after 10s.
+   *
+   * `highAccuracy: false` (default) asks the device for a quick network/
+   * cell-based fix — resolves in ~1-2s and is what most apps show first.
+   * `highAccuracy: true` asks for a real GPS fix, which can take much
+   * longer (or never resolve) on a cold GPS chip indoors, so callers doing
+   * a two-phase fetch should use a longer timeout for that pass.
    */
-  getCurrentPosition: (): Promise<Coordinates> => {
+  getCurrentPosition: (options?: {
+    highAccuracy?: boolean;
+    timeout?: number;
+  }): Promise<Coordinates> => {
+    const highAccuracy = options?.highAccuracy ?? false;
     return new Promise((resolve, reject) => {
       Geolocation.getCurrentPosition(
         position => {
@@ -28,9 +37,9 @@ export const locationService = {
         },
         error => reject(error),
         {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 60000,
+          enableHighAccuracy: highAccuracy,
+          timeout: options?.timeout ?? (highAccuracy ? 15000 : 5000),
+          maximumAge: highAccuracy ? 0 : 60000,
         },
       );
     });

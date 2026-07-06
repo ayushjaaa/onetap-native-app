@@ -1,8 +1,8 @@
 export const APP_NAME = 'OneTap365';
 
-export const OTP_LENGTH = 4;
+export const OTP_LENGTH = 6;
 export const OTP_TIMER_SECONDS = 120;
-export const MOCK_OTP = '1234';
+export const MOCK_OTP = '123456';
 export const OTP_MAX_ATTEMPTS = 3;
 
 export const PHONE_LENGTH = 10;

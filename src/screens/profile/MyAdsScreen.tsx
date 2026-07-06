@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   CheckCircle2,
@@ -108,8 +108,18 @@ export const MyAdsScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ListingStatus>('live');
   const [rejectionSheet, setRejectionSheet] = useState<MyListing | null>(null);
 
-  const { data, isLoading } = useGetMyListingsQuery();
+  const { data, isLoading, refetch } = useGetMyListingsQuery();
   const [deleteListing] = useDeleteListingMutation();
+
+  // Admin approval/rejection happens out-of-band (admin dashboard, not this
+  // app), so the RTK Query cache has no way to know a listing's status
+  // changed server-side. Refetch every time this screen regains focus so a
+  // seller returning here sees the current status instead of a stale cache.
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch]),
+  );
 
   const rawListings = data?.listings ?? EMPTY_LISTINGS;
   const listings = useMemo(
@@ -135,10 +145,16 @@ export const MyAdsScreen: React.FC = () => {
   );
 
   const handleOpenListing = (listing: MyListing) => {
-    // TODO: when S13 (Listing Detail seller view) wiring lands, route to
-    // ListingDetail with the same listingId — that screen already exists
-    // and will conditionally render the seller sections.
-    navigation.navigate('ListingDetail', { listingId: listing.id });
+    // Pass the already-fetched raw Listing through navigation params instead
+    // of having ListingDetailScreen re-fetch by id: GET /listings/:id is
+    // public and only returns Live/Sold listings (404s for Pending/
+    // Rejected/Draft/Expired), so a seller tapping into their own
+    // not-yet-approved listing would otherwise hit a false "not found".
+    const raw = rawListings.find(l => l._id === listing.id);
+    navigation.navigate('ListingDetail', {
+      listingId: listing.id,
+      listing: raw,
+    });
   };
 
   const handleRemove = (listing: MyListing) => {

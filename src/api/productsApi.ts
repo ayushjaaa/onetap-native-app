@@ -37,8 +37,13 @@ export const productsApi = baseApi.injectEndpoints({
 
     getMyListings: builder.query<GetMyListingsResponseData, void>({
       query: () => ({ url: '/marketplace/listings/mine', method: 'GET' }),
-      transformResponse: (response: ApiResponse<GetMyListingsResponseData>) =>
-        response.data,
+      transformResponse: (response: ApiResponse<GetMyListingsResponseData>) => {
+        console.log(
+          '[productsApi] getMyListings raw response:',
+          JSON.stringify(response, null, 2),
+        );
+        return response.data;
+      },
       keepUnusedDataFor: 30,
       providesTags: result =>
         result
@@ -72,6 +77,14 @@ export const productsApi = baseApi.injectEndpoints({
       ],
     }),
 
+    getListingById: builder.query<Listing, string>({
+      query: id => ({ url: `/marketplace/listings/${id}`, method: 'GET' }),
+      transformResponse: (response: ApiResponse<{ listing: Listing }>) =>
+        response.data.listing,
+      keepUnusedDataFor: 30,
+      providesTags: (_result, _error, id) => [{ type: 'Listing' as const, id }],
+    }),
+
     deleteListing: builder.mutation<DeleteListingResponseData, string>({
       query: id => ({
         url: `/marketplace/listings/${id}`,
@@ -92,6 +105,7 @@ export const productsApi = baseApi.injectEndpoints({
 export const {
   useGetFeedQuery,
   useGetMyListingsQuery,
+  useGetListingByIdQuery,
   useCreateListingMutation,
   useDeleteListingMutation,
 } = productsApi;

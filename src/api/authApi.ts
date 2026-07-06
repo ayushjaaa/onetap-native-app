@@ -1,6 +1,4 @@
 import { baseApi } from './baseApi';
-import { env } from '@/config/env';
-import { MOCK_OTP } from '@/config/constants';
 import type {
   RegisterRequest,
   RegisterResponse,
@@ -11,16 +9,12 @@ import type {
   UpdateProfileResponse,
   SendOtpRequest,
   SendOtpResponse,
+  ResendOtpResponse,
   VerifyOtpRequest,
   VerifyOtpResponse,
   GoogleSignInRequest,
   GoogleSignInResponse,
 } from '@/types';
-
-const delay = (ms: number) =>
-  new Promise<void>(resolve => {
-    setTimeout(() => resolve(), ms);
-  });
 
 export const authApi = baseApi.injectEndpoints({
   endpoints: builder => ({
@@ -67,60 +61,27 @@ export const authApi = baseApi.injectEndpoints({
       invalidatesTags: ['User'],
     }),
 
-    /**
-     * MOCK endpoint. Returns success after a small delay.
-     * Backend not yet implemented — see AUTH_REQUIREMENTS.md §19.
-     */
     sendOtp: builder.mutation<SendOtpResponse, SendOtpRequest>({
-      queryFn: async arg => {
-        if (env.USE_MOCK_OTP) {
-          await delay(800);
-          return {
-            data: {
-              success: true,
-              message: `OTP sent to +91${arg.phone}`,
-            },
-          };
-        }
-        return {
-          error: {
-            status: 501,
-            data: { message: 'Real OTP endpoint not implemented yet' },
-          },
-        };
-      },
+      query: body => ({
+        url: '/auth/phone/send-otp',
+        method: 'POST',
+        body,
+      }),
     }),
 
-    /**
-     * MOCK endpoint. Verifies against MOCK_OTP (1234).
-     */
+    resendOtp: builder.mutation<ResendOtpResponse, void>({
+      query: () => ({
+        url: '/auth/phone/resend-otp',
+        method: 'POST',
+      }),
+    }),
+
     verifyOtp: builder.mutation<VerifyOtpResponse, VerifyOtpRequest>({
-      queryFn: async arg => {
-        if (env.USE_MOCK_OTP) {
-          await delay(500);
-          if (arg.otp === MOCK_OTP) {
-            return {
-              data: {
-                success: true,
-                verified: true,
-                message: 'OTP verified',
-              },
-            };
-          }
-          return {
-            error: {
-              status: 400,
-              data: { message: 'Invalid OTP. Please try again.' },
-            },
-          };
-        }
-        return {
-          error: {
-            status: 501,
-            data: { message: 'Real OTP verify endpoint not implemented yet' },
-          },
-        };
-      },
+      query: body => ({
+        url: '/auth/phone/verify-otp',
+        method: 'POST',
+        body,
+      }),
     }),
   }),
   overrideExisting: false,
@@ -134,5 +95,6 @@ export const {
   useLazyGetMeQuery,
   useUpdateProfileMutation,
   useSendOtpMutation,
+  useResendOtpMutation,
   useVerifyOtpMutation,
 } = authApi;
