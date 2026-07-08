@@ -1,45 +1,90 @@
-import React from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronLeft } from 'lucide-react-native';
+import {
+  Bell,
+  CheckCircle2,
+  ChevronLeft,
+  CreditCard,
+  Package as PackageIcon,
+  ShieldAlert,
+  ShieldCheck,
+  Wallet as WalletIcon,
+  XCircle,
+} from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
 import { EmptyState } from '@/components/marketplace';
+import { ShimmerCard } from '@/components/common/Shimmer';
 import {
   useGetNotificationsQuery,
   useMarkAllNotificationsReadMutation,
   useMarkNotificationReadMutation,
 } from '@/api/notificationApi';
-import { routeFromNotification } from '@/utils/notificationRouting';
 import { formatRelativeShort } from '@/data/listingsStub';
+import type { Notification } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
-import type { AppNotification } from '@/types';
-import { TYPE_COLOUR, TYPE_ICON } from './notificationTypeStyles';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'Notifications'>;
+
+const EMPTY_NOTIFICATIONS: Notification[] = [];
+
+// ---- Type → icon / colour mapping -------------------------------------------
+// Keyed by the real eventType strings the backend's outbox pipeline emits
+// (see onetap-backend notification-service seedNotificationTemplates.ts).
+// Falls back to a generic bell for any type not listed here, since the
+// backend can add new template keys without an app release.
+
+const TYPE_ICON: Record<string, LucideIcon> = {
+  'kyc.approved': ShieldCheck,
+  'kyc.rejected': ShieldAlert,
+  'kyc.aadhaar_verified': ShieldCheck,
+  'payment.completed': CreditCard,
+  'post_slots.granted': PackageIcon,
+  'listing.approved': CheckCircle2,
+  'listing.rejected': XCircle,
+  'transaction.completed': WalletIcon,
+  'user.suspended': ShieldAlert,
+  'user.reinstated': ShieldCheck,
+};
+
+const TYPE_COLOUR: Record<string, string> = {
+  'kyc.approved': colors.success,
+  'kyc.rejected': colors.error,
+  'kyc.aadhaar_verified': colors.success,
+  'payment.completed': colors.primary,
+  'post_slots.granted': colors.primary,
+  'listing.approved': colors.success,
+  'listing.rejected': colors.error,
+  'transaction.completed': colors.success,
+  'user.suspended': colors.error,
+  'user.reinstated': colors.success,
+};
 
 // ---- Screen -----------------------------------------------------------------
 
 export const NotificationCenterScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
-  const { data, isLoading } = useGetNotificationsQuery();
-  const [markRead] = useMarkNotificationReadMutation();
+
+  const { data, isLoading } = useGetNotificationsQuery({ limit: 50 });
   const [markAllRead] = useMarkAllNotificationsReadMutation();
+  const [markRead] = useMarkNotificationReadMutation();
 
-  const items = data?.notifications ?? [];
-  const unreadCount = items.filter(n => n.status !== 'read').length;
+  const notifications = data?.notifications ?? EMPTY_NOTIFICATIONS;
+  const unreadCount = useMemo(
+    () => notifications.filter(n => n.status !== 'read').length,
+    [notifications],
+  );
 
-  const handleRowTap = (n: AppNotification) => {
-    if (n.status !== 'read') markRead(n._id);
-    routeFromNotification(n);
+  const handleMarkAllRead = () => {
+    void markAllRead();
+  };
+
+  const handleRowTap = (n: Notification) => {
+    if (n.status !== 'read') void markRead(n._id);
+    routeFromNotification(n, navigation);
   };
 
   return (
@@ -55,7 +100,7 @@ export const NotificationCenterScreen: React.FC = () => {
         <Text style={styles.headerTitle}>Notifications</Text>
         {unreadCount > 0 ? (
           <Pressable
-            onPress={() => markAllRead()}
+            onPress={handleMarkAllRead}
             hitSlop={spacing.sm}
             style={styles.markAllBtn}
           >
@@ -69,24 +114,23 @@ export const NotificationCenterScreen: React.FC = () => {
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          items.length === 0 && styles.scrollContentEmpty,
+          notifications.length === 0 && styles.scrollContentEmpty,
         ]}
         showsVerticalScrollIndicator={false}
       >
         {isLoading ? (
-          <ActivityIndicator
-            size="large"
-            color={colors.primary}
-            style={styles.loading}
-          />
-        ) : items.length === 0 ? (
+          <>
+            <ShimmerCard />
+            <ShimmerCard />
+          </>
+        ) : notifications.length === 0 ? (
           <EmptyState
             icon={Bell}
             title="All quiet for now"
             message="Aapke saare alerts yahaan dikhayi denge."
           />
         ) : (
-          items.map(n => (
+          notifications.map(n => (
             <NotificationRow
               key={n._id}
               n={n}
@@ -102,14 +146,14 @@ export const NotificationCenterScreen: React.FC = () => {
 // ---- Row --------------------------------------------------------------------
 
 interface RowProps {
-  n: AppNotification;
+  n: Notification;
   onPress: () => void;
 }
 
 const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
+  const Icon = TYPE_ICON[n.type] ?? Bell;
+  const tint = TYPE_COLOUR[n.type] ?? colors.textMuted;
   const isRead = n.status === 'read';
-  const Icon = TYPE_ICON(n.type);
-  const tint = TYPE_COLOUR(n.type);
 
   return (
     <Pressable
@@ -153,6 +197,20 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
     </Pressable>
   );
 };
+
+// ---- Routing -----------------------------------------------------------------
+// Every notification opens its own detail view first (title/body/timestamp +
+// a type-specific "view listing/wallet/transaction" action inside), rather
+// than jumping straight to another screen — so types with nowhere else to
+// deep-link to (kyc.*, user.suspended, user.reinstated) still show something
+// on tap instead of doing nothing.
+
+function routeFromNotification(n: Notification, navigation: Nav): void {
+  navigation.navigate('NotificationDetail', {
+    notificationId: n._id,
+    notification: n,
+  });
+}
 
 // ---- Helpers ----------------------------------------------------------------
 

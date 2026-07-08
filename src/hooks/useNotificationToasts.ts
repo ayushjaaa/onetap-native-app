@@ -40,7 +40,7 @@ export function useNotificationToasts(): void {
     // already unread before this session started polling.
     if (prev === null || unreadData.count <= prev) return;
 
-    fetchNotifications()
+    fetchNotifications(undefined)
       .unwrap()
       .then(result => {
         const newest = result.notifications[0];

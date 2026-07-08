@@ -1,11 +1,12 @@
 import { navigateFromOutsideScreen } from '@/navigation/navigationRef';
-import type { AppNotification } from '@/types';
+import type { Notification } from '@/types';
 
 // Keyed on the backend's real free-form event `type` strings (see
 // notification-service/src/seeds/seedNotificationTemplates.ts) — not the old
-// closed NotificationType enum from the stub data. Shared by the notification
-// list screen and the toast tap-handler so both routes stay in sync.
-export function routeFromNotification(n: AppNotification): void {
+// closed NotificationType enum from the stub data. Used by the toast
+// tap-handler for direct deep-linking (NotificationCenterScreen's row tap
+// instead opens NotificationDetailScreen, which has its own in-screen actions).
+export function routeFromNotification(n: Notification): void {
   const listingId = n.payload?.listingId;
 
   switch (n.type) {

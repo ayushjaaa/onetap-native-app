@@ -47,9 +47,13 @@ import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
 import {
   useExpressInterestMutation,
   useGetListingQuery,
+  useDeleteListingMutation,
 } from '@/api/productsApi';
 import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
+import { useSelectBuyerMutation } from '@/api/transactionsApi';
 import { getDistanceKm } from '@/utils/geo';
+import { buildMediaUrl } from '@/utils/media';
+import { mapApiError } from '@/utils/errorMapper';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 import type { Interest, Listing, ListingStatus } from '@/types';
@@ -105,16 +109,22 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const currentUserId = useAppSelector(state => state.auth.user?.id);
   const deviceLocation = useAppSelector(state => state.location);
 
+  // Seller callers (MyAdsScreen) pass the already-fetched Listing directly —
+  // GET /listings/:id is public and only returns Live/Sold listings, so a
+  // seller opening their own Pending/Rejected listing would 404 if this
+  // screen always re-fetched by id. Only fetch when nothing was passed.
+  const passedListing = route.params.listing;
   const {
     data: listingData,
     isLoading: isListingLoading,
     error: listingError,
-  } = useGetListingQuery(route.params.listingId);
+  } = useGetListingQuery(passedListing ? skipToken : route.params.listingId);
 
-  // Local mutable copy seeded from the query — lets the seller's "sell to this
-  // buyer" hold-to-confirm action (not yet backed by a real endpoint, see
-  // handleSellConfirmed) optimistically reflect a Sold state without a refetch.
-  const [listing, setListing] = useState<Listing | null>(null);
+  // Local mutable copy seeded from whichever source applies — lets the
+  // seller's "sell to this buyer" hold-to-confirm action optimistically
+  // reflect a Sold state the instant selectBuyer resolves, without waiting
+  // on a refetch.
+  const [listing, setListing] = useState<Listing | null>(passedListing ?? null);
   useEffect(() => {
     if (listingData?.listing) setListing(listingData.listing);
   }, [listingData]);
@@ -129,6 +139,8 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   const [expressInterest, { isLoading: buyConfirming }] =
     useExpressInterestMutation();
+  const [deleteListing, { isLoading: removing }] = useDeleteListingMutation();
+  const [selectBuyer] = useSelectBuyerMutation();
 
   const isSellerMode = !!listing && listing.sellerId === currentUserId;
 
@@ -238,9 +250,18 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            toast.success({ title: 'Listing removed' });
-            navigation.goBack();
+          onPress: async () => {
+            try {
+              await deleteListing(listing._id).unwrap();
+              toast.success({ title: 'Listing removed' });
+              navigation.goBack();
+            } catch (err) {
+              const mapped = mapApiError(err as never);
+              toast.error({
+                title: "Couldn't remove listing",
+                message: mapped.message,
+              });
+            }
           },
         },
       ],
@@ -249,25 +270,39 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   const handleSellTo = (buyer: InterestedBuyer) => setSellTarget(buyer);
 
-  const handleSellConfirmed = () => {
-    if (!sellTarget) return;
-    // Optimistic local update — real "select buyer" transaction endpoint isn't
-    // wired yet (out of scope for the interests/seller-details work this screen
-    // otherwise ships), so this stays a local-only status flip for now.
-    setListing(prev =>
-      prev
-        ? {
-            ...prev,
-            status: 'Sold',
-            soldAt: new Date().toISOString(),
-          }
-        : prev,
-    );
-    setSellTarget(null);
-    toast.success({
-      title: 'Sale recorded',
-      message: `Sold to ${sellTarget.name}. Slot wapas Wallet mein add ho gaya.`,
-    });
+  const handleSellConfirmed = async () => {
+    if (!sellTarget || !listing) return;
+    try {
+      await selectBuyer({
+        interestId: sellTarget.id,
+        listingId: listing._id,
+      }).unwrap();
+      // Optimistic local flip so the screen reflects Sold immediately —
+      // selectBuyer's cache invalidation will reconcile with the server
+      // response shortly after.
+      setListing(prev =>
+        prev
+          ? {
+              ...prev,
+              status: 'Sold',
+              soldAt: new Date().toISOString(),
+            }
+          : prev,
+      );
+      const soldToName = sellTarget.name;
+      setSellTarget(null);
+      toast.success({
+        title: 'Sale recorded',
+        message: `Sold to ${soldToName}. Slot wapas Wallet mein add ho gaya.`,
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      setSellTarget(null);
+      toast.error({
+        title: "Couldn't select buyer",
+        message: mapped.message,
+      });
+    }
   };
 
   return (
@@ -293,7 +328,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               {listing.photos.map((uri, i) => (
                 <Image
                   key={i}
-                  source={{ uri }}
+                  source={{ uri: buildMediaUrl(uri) }}
                   style={[
                     styles.galleryImage,
                     listing.status === 'Sold' && styles.galleryDim,
@@ -324,6 +359,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                   onPress={() => setMenuOpen(true)}
                   hitSlop={spacing.md}
                   style={styles.iconBtn}
+                  testID="listing-detail-menu-button"
                 >
                   <MoreVertical
                     size={layout.iconSize.md}
@@ -546,6 +582,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             {listing.status === 'Live' ? (
               <Pressable
                 onPress={handleRemove}
+                disabled={removing}
                 style={({ pressed }) => [
                   styles.menuItem,
                   pressed && styles.menuItemPressed,
@@ -553,7 +590,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               >
                 <Trash2 size={layout.iconSize.sm} color={colors.error} />
                 <Text style={[styles.menuItemText, styles.menuItemDanger]}>
-                  Remove listing
+                  {removing ? 'Removing…' : 'Remove listing'}
                 </Text>
               </Pressable>
             ) : null}
@@ -647,7 +684,7 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
     return (
       <View style={[styles.statusBanner, styles.statusPending]}>
         <Clock size={layout.iconSize.sm} color={colors.warning} />
-        <Text style={styles.statusText}>Pending admin review</Text>
+        <Text style={styles.statusText}>Pending admin review.</Text>
       </View>
     );
   }

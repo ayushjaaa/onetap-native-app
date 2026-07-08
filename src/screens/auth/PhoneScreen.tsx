@@ -11,6 +11,7 @@ import { PhoneInput } from '@/components/auth/PhoneInput';
 import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
 import { useSendOtpMutation } from '@/api/authApi';
 import { useToast } from '@/hooks/useToast';
+import { secureStorage } from '@/services/secureStorage';
 import { mapApiError } from '@/utils/errorMapper';
 import { colors, spacing, typography } from '@/theme';
 import type {
@@ -42,6 +43,12 @@ export const PhoneScreen: React.FC = () => {
 
   const onSubmit = async (values: PhoneFormData) => {
     try {
+      // The real send-otp endpoint requires a bearer token (authMiddleware).
+      // Persist it to Keychain now — OtpScreen only persisted it after
+      // verification succeeded, which is too late for this call to succeed.
+      if (token) {
+        await secureStorage.saveToken(token);
+      }
       await sendOtp({ phone: values.phone }).unwrap();
       navigation.navigate('Otp', {
         email,

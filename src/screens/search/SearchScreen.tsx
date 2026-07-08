@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -17,13 +17,15 @@ import {
   TrendingUp,
 } from 'lucide-react-native';
 import { EmptyState, ListingCard } from '@/components/marketplace';
+import { ShimmerCard } from '@/components/common/Shimmer';
+import {
+  useAutocompleteSearchQuery,
+  useSearchListingsQuery,
+} from '@/api/productsApi';
+import { formatRelativeShort } from '@/data/listingsStub';
 import { colors, fontSize, layout, radius, spacing } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
-import {
-  STUB_LIVE_LISTINGS,
-  toListingCardShape,
-  type ListingCardShape,
-} from '@/data/listingsStub';
+import type { Listing } from '@/types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
@@ -36,31 +38,72 @@ const STUB_TRENDING = [
   'Maid service',
 ];
 
+const DEBOUNCE_MS = 300;
+const MIN_QUERY_LENGTH = 2;
+
+const formatPricePaise = (paise: number): string =>
+  `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+
+const toCardData = (listing: Listing) => ({
+  id: listing._id,
+  image: listing.photos[0],
+  title: listing.title,
+  price: formatPricePaise(listing.price),
+  location: listing.address ?? '',
+  time: formatRelativeShort(listing.createdAt),
+  badge: listing.condition,
+});
+
+/** Debounces a fast-changing value so dependent queries don't fire per keystroke. */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 export const SearchScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [query, setQuery] = useState('');
   const [recent, setRecent] = useState<string[]>(STUB_RECENT);
+  // Distinguishes "still typing, show live suggestions" from "submitted,
+  // show real results" — without this, inferring intent purely from debounce
+  // timing means suggestions always flicker into results a moment after the
+  // user stops typing, even if they never pressed search.
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
 
   const trimmed = query.trim();
   const hasQuery = trimmed.length > 0;
-  const isLoadingResults = false;
-  const q = trimmed.toLowerCase();
-  const matched = STUB_LIVE_LISTINGS.filter(
-    l =>
-      l.title.toLowerCase().includes(q) ||
-      l.category.toLowerCase().includes(q),
+  const isSubmitted = submittedQuery !== null && submittedQuery === trimmed;
+  const debouncedQuery = useDebouncedValue(trimmed, DEBOUNCE_MS);
+  const isQueryReady = debouncedQuery.length >= MIN_QUERY_LENGTH;
+
+  const { data: searchData, isFetching: isSearching } = useSearchListingsQuery(
+    { q: submittedQuery ?? '' },
+    { skip: !isSubmitted },
   );
-  const results: ListingCardShape[] = hasQuery
-    ? (matched.length > 0 ? matched : STUB_LIVE_LISTINGS).map(toListingCardShape)
-    : [];
+  const { data: autocompleteData } = useAutocompleteSearchQuery(
+    debouncedQuery,
+    { skip: !isQueryReady || isSubmitted },
+  );
+
+  const suggestions = autocompleteData?.suggestions ?? [];
+  const showSuggestions = hasQuery && !isSubmitted && suggestions.length > 0;
+
+  const results = searchData?.listings ?? [];
+  const isLoadingResults = isSubmitted && isSearching;
 
   const handleSubmit = (term: string) => {
-    if (!term.trim()) return;
+    const value = term.trim();
+    if (!value) return;
     setRecent(prev => {
-      const next = [term, ...prev.filter(r => r !== term)];
+      const next = [value, ...prev.filter(r => r !== value)];
       return next.slice(0, 8);
     });
-    setQuery(term);
+    setQuery(value);
+    setSubmittedQuery(value);
   };
 
   const removeRecent = (term: string) => {
@@ -100,27 +143,56 @@ export const SearchScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         {hasQuery ? (
-          isLoadingResults ? null : results.length === 0 ? (
+          showSuggestions && suggestions.length > 0 ? (
+            <View style={styles.list}>
+              {suggestions.map(term => (
+                <Pressable
+                  key={term}
+                  onPress={() => handleSubmit(term)}
+                  style={({ pressed }) => [
+                    styles.row,
+                    pressed && styles.rowPressed,
+                  ]}
+                >
+                  <SearchIcon
+                    size={layout.iconSize.sm}
+                    color={colors.textMuted}
+                  />
+                  <Text style={styles.rowText}>{term}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : isLoadingResults ? (
+            <>
+              <ShimmerCard />
+              <ShimmerCard />
+            </>
+          ) : results.length === 0 ? (
             <EmptyState
               title={`No results for "${trimmed}"`}
               message="Try a different keyword or check your spelling."
             />
           ) : (
-            results.map(item => (
-              <ListingCard
-                key={item.id}
-                image={item.image}
-                title={item.title}
-                price={item.price}
-                location={item.location}
-                time={item.time}
-                badge={item.badge}
-                badgeColor={item.badgeColor}
-                onPress={() =>
-                  navigation.navigate('ListingDetail', { listingId: item.id })
-                }
-              />
-            ))
+            results.map(item => {
+              const card = toCardData(item);
+              return (
+                <ListingCard
+                  key={card.id}
+                  image={card.image}
+                  title={card.title}
+                  price={card.price}
+                  location={card.location}
+                  time={card.time}
+                  badge={card.badge}
+                  onPress={() =>
+                    navigation.navigate('ListingDetail', {
+                      listingId: card.id,
+                      listing: item,
+                    })
+                  }
+                />
+              );
+            })
           )
         ) : (
           <>
@@ -128,10 +200,7 @@ export const SearchScreen: React.FC = () => {
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <View style={styles.sectionTitleRow}>
-                    <Clock
-                      size={layout.iconSize.sm}
-                      color={colors.textMuted}
-                    />
+                    <Clock size={layout.iconSize.sm} color={colors.textMuted} />
                     <Text style={styles.sectionTitle}>Recent</Text>
                   </View>
                   <Pressable onPress={() => setRecent([])} hitSlop={spacing.sm}>
@@ -157,10 +226,7 @@ export const SearchScreen: React.FC = () => {
                         onPress={() => removeRecent(term)}
                         hitSlop={spacing.sm}
                       >
-                        <X
-                          size={layout.iconSize.sm}
-                          color={colors.textMuted}
-                        />
+                        <X size={layout.iconSize.sm} color={colors.textMuted} />
                       </Pressable>
                     </Pressable>
                   ))}
@@ -170,10 +236,7 @@ export const SearchScreen: React.FC = () => {
 
             <View style={styles.section}>
               <View style={styles.sectionTitleRow}>
-                <TrendingUp
-                  size={layout.iconSize.sm}
-                  color={colors.warning}
-                />
+                <TrendingUp size={layout.iconSize.sm} color={colors.warning} />
                 <Text style={styles.sectionTitle}>Trending searches</Text>
               </View>
               <View style={styles.chipWrap}>

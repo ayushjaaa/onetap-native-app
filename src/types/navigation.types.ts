@@ -1,12 +1,17 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { User } from './auth.types';
+import type { Listing } from './product.types';
+import type { Notification } from './notification.types';
 
 export type AuthStackParamList = {
   Welcome: undefined;
   SignUpName: undefined;
   SignUpEmail: undefined;
   SignUpPassword: undefined;
-  SignUpLocation: { fromGoogle?: boolean; user?: User; token?: string } | undefined;
+  SignUpLocation:
+    | { fromGoogle?: boolean; user?: User; token?: string }
+    | undefined;
   Login: undefined;
   Phone: {
     email: string;
@@ -52,11 +57,16 @@ export interface ListingRef {
 export type ComingSoonFeatureKey = 'service' | 'bid' | 'sip';
 
 export type MainStackParamList = {
-  Tabs: undefined;
+  Tabs: NavigatorScreenParams<MainTabParamList> | undefined;
   CategoryList: undefined;
   CategoryBrowse: { category: CategoryRef };
   CategoryItems: { category: CategoryRef; subcategoryId?: string };
-  ListingDetail: { listingId: string };
+  // `listing` is an optional pre-fetched Listing passed from screens (like
+  // MyAdsScreen) that already have the full object from GET /listings/mine
+  // — avoids ListingDetailScreen re-fetching by id, which matters because
+  // the public GET /listings/:id 404s for non-Live/Sold statuses (a seller
+  // viewing their own Pending/Rejected listing would otherwise 404).
+  ListingDetail: { listingId: string; listing?: Listing };
   ComingSoon: { featureKey: ComingSoonFeatureKey };
   BecomeSellerIntro: undefined;
   AadhaarNumber: undefined;
@@ -76,6 +86,10 @@ export type MainStackParamList = {
   PurchaseHistory: undefined;
   SalesHistory: undefined;
   Notifications: undefined;
+  // `notification` is passed straight from NotificationCenterScreen's already
+  // -fetched list, avoiding a re-fetch by id (there's no GET /notification/:id
+  // endpoint on the backend — only list + unread-count + mark-read).
+  NotificationDetail: { notificationId: string; notification: Notification };
   ForgotPasswordPhone: undefined;
   ForgotPasswordOtp: { phone: string };
   ForgotPasswordReset: { phone: string };

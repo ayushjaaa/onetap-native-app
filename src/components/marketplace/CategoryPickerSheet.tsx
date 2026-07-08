@@ -14,13 +14,7 @@ import {
   resolveCategoryPath,
   STUB_CATEGORY_TREE,
 } from '@/data/categoryTree';
-import {
-  colors,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { colors, layout, radius, spacing, typography } from '@/theme';
 
 export interface CategoryPickResult {
   /** Terminal category id (may be sub-level if tree is 2-deep). */
@@ -88,12 +82,10 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
     }
   }, [visible, initialCategoryId, categoryTree]);
 
-  const topNode = topId
-    ? categoryTree.find(n => n.id === topId) ?? null
-    : null;
+  const topNode = topId ? categoryTree.find(n => n.id === topId) ?? null : null;
   const subNode = topNode?.children?.find(n => n.id === subId) ?? null;
   const leafNode = subNode?.children?.find(n => n.id === leafId) ?? null;
-  const subIsTerminal = !!subNode && !(subNode.children?.length);
+  const subIsTerminal = !!subNode && !subNode.children?.length;
 
   const commit = (terminalId: string) => {
     onPick({
@@ -155,13 +147,12 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
               keyboardShouldPersistTaps="handled"
             >
               <DrillField
+                testID="category-picker-top-field"
                 title="Top level"
                 placeholder="Choose a category"
                 value={topNode?.name ?? null}
                 open={openLevel === 'top'}
-                onPress={() =>
-                  setOpenLevel(openLevel === 'top' ? null : 'top')
-                }
+                onPress={() => setOpenLevel(openLevel === 'top' ? null : 'top')}
               />
               {openLevel === 'top' ? (
                 <DrillOptions
@@ -181,9 +172,7 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
                 value={subNode?.name ?? null}
                 disabled={!topNode}
                 open={openLevel === 'sub'}
-                onPress={() =>
-                  setOpenLevel(openLevel === 'sub' ? null : 'sub')
-                }
+                onPress={() => setOpenLevel(openLevel === 'sub' ? null : 'sub')}
               />
               {openLevel === 'sub' && topNode ? (
                 <DrillOptions
@@ -237,6 +226,7 @@ interface DrillFieldProps {
   disabled?: boolean;
   open?: boolean;
   onPress: () => void;
+  testID?: string;
 }
 
 const DrillField: React.FC<DrillFieldProps> = ({
@@ -246,10 +236,12 @@ const DrillField: React.FC<DrillFieldProps> = ({
   disabled = false,
   open = false,
   onPress,
+  testID,
 }) => (
   <View style={styles.drillWrap}>
     <Text style={styles.drillTitle}>{title}</Text>
     <Pressable
+      testID={testID}
       onPress={disabled ? undefined : onPress}
       disabled={disabled}
       style={({ pressed }) => [
@@ -303,6 +295,7 @@ const DrillOptions: React.FC<DrillOptionsProps> = ({
         return (
           <Pressable
             key={opt.id}
+            testID={`category-option-${opt.id}`}
             onPress={() => onPick(opt.id)}
             style={({ pressed }) => [
               styles.drillOptionRow,

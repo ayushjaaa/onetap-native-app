@@ -13,6 +13,9 @@ import type {
   GetTrendingParams,
   GetTrendingResponseData,
   Listing,
+  SearchAutocompleteResponseData,
+  SearchListingsParams,
+  SearchListingsResponseData,
 } from '@/types';
 
 export const productsApi = baseApi.injectEndpoints({
@@ -93,8 +96,13 @@ export const productsApi = baseApi.injectEndpoints({
 
     getMyListings: builder.query<GetMyListingsResponseData, void>({
       query: () => ({ url: '/marketplace/listings/mine', method: 'GET' }),
-      transformResponse: (response: ApiResponse<GetMyListingsResponseData>) =>
-        response.data,
+      transformResponse: (response: ApiResponse<GetMyListingsResponseData>) => {
+        console.log(
+          '[productsApi] getMyListings raw response:',
+          JSON.stringify(response, null, 2),
+        );
+        return response.data;
+      },
       keepUnusedDataFor: 30,
       providesTags: result =>
         result
@@ -128,6 +136,14 @@ export const productsApi = baseApi.injectEndpoints({
       ],
     }),
 
+    getListingById: builder.query<Listing, string>({
+      query: id => ({ url: `/marketplace/listings/${id}`, method: 'GET' }),
+      transformResponse: (response: ApiResponse<{ listing: Listing }>) =>
+        response.data.listing,
+      keepUnusedDataFor: 30,
+      providesTags: (_result, _error, id) => [{ type: 'Listing' as const, id }],
+    }),
+
     deleteListing: builder.mutation<DeleteListingResponseData, string>({
       query: id => ({
         url: `/marketplace/listings/${id}`,
@@ -141,6 +157,33 @@ export const productsApi = baseApi.injectEndpoints({
         { type: 'Listing' as const, id: 'FEED' },
       ],
     }),
+
+    searchListings: builder.query<
+      SearchListingsResponseData,
+      SearchListingsParams
+    >({
+      query: params => ({
+        url: '/marketplace/listings/search',
+        method: 'GET',
+        params,
+      }),
+      transformResponse: (response: ApiResponse<SearchListingsResponseData>) =>
+        response.data,
+      keepUnusedDataFor: 30,
+      providesTags: [{ type: 'Listing' as const, id: 'SEARCH' }],
+    }),
+
+    autocompleteSearch: builder.query<SearchAutocompleteResponseData, string>({
+      query: q => ({
+        url: '/marketplace/listings/search/autocomplete',
+        method: 'GET',
+        params: { q },
+      }),
+      transformResponse: (
+        response: ApiResponse<SearchAutocompleteResponseData>,
+      ) => response.data,
+      keepUnusedDataFor: 15,
+    }),
   }),
   overrideExisting: false,
 });
@@ -151,8 +194,11 @@ export const {
   useGetListingQuery,
   useExpressInterestMutation,
   useGetMyListingsQuery,
+  useGetListingByIdQuery,
   useCreateListingMutation,
   useDeleteListingMutation,
+  useSearchListingsQuery,
+  useAutocompleteSearchQuery,
 } = productsApi;
 
 export type { Listing };

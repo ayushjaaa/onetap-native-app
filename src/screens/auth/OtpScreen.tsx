@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/useToast';
 import { useOtpTimer, formatTimer } from '@/hooks/useOtpTimer';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import {
-  useSendOtpMutation,
+  useResendOtpMutation,
   useVerifyOtpMutation,
   useUpdateProfileMutation,
 } from '@/api/authApi';
@@ -18,6 +18,7 @@ import { secureStorage } from '@/services/secureStorage';
 import { setCredentials } from '@/store/authSlice';
 import { mapApiError } from '@/utils/errorMapper';
 import { formatPhoneWithPrefix } from '@/utils/formatters';
+import { env } from '@/config/env';
 import {
   OTP_LENGTH,
   OTP_TIMER_SECONDS,
@@ -46,7 +47,7 @@ export const OtpScreen: React.FC = () => {
 
   const { remaining, expired, restart } = useOtpTimer(OTP_TIMER_SECONDS);
 
-  const [sendOtp, { isLoading: resending }] = useSendOtpMutation();
+  const [resendOtp, { isLoading: resending }] = useResendOtpMutation();
   const [verifyOtp] = useVerifyOtpMutation();
   const [updateProfile] = useUpdateProfileMutation();
 
@@ -57,7 +58,7 @@ export const OtpScreen: React.FC = () => {
     }
   }, [otp, hasError]);
 
-  // Auto-submit when 4 digits entered
+  // Auto-submit once all digits are entered
   useEffect(() => {
     if (otp.length === OTP_LENGTH && !isProcessing) {
       handleVerify();
@@ -70,8 +71,10 @@ export const OtpScreen: React.FC = () => {
     setIsProcessing(true);
 
     try {
-      // 1. Verify OTP (mock — checks against 1234)
-      await verifyOtp({ phone, otp }).unwrap();
+      // 1. Verify OTP — skipped in mock mode (dummy code, real APIs otherwise)
+      if (!env.USE_MOCK_OTP) {
+        await verifyOtp({ code: otp }).unwrap();
+      }
 
       // 2. Use user + token already received from previous step
       //    (login API for manual flow, /auth/google for Google flow)
@@ -123,16 +126,22 @@ export const OtpScreen: React.FC = () => {
       setHasError(true);
       setOtp('');
 
-      if (newAttempts >= OTP_MAX_ATTEMPTS) {
+      if (mapped.status === 429) {
+        toast.error({
+          title: 'Too many attempts',
+          message: mapped.message,
+        });
+      } else if (mapped.isNetworkError || mapped.isServerError) {
+        toast.error({ title: 'Could not verify', message: mapped.message });
+      } else if (mapped.message.toLowerCase().includes('expired')) {
+        toast.error({ title: 'Code expired', message: mapped.message });
+      } else if (newAttempts >= OTP_MAX_ATTEMPTS) {
         toast.error({
           title: 'Too many attempts',
           message: 'Please request a new OTP.',
         });
       } else {
-        toast.error({
-          title: 'Verification failed',
-          message: mapped.message,
-        });
+        toast.error({ title: 'Incorrect code', message: mapped.message });
       }
     } finally {
       setIsProcessing(false);
@@ -142,7 +151,7 @@ export const OtpScreen: React.FC = () => {
   const handleResend = async () => {
     if (!expired) return;
     try {
-      await sendOtp({ phone }).unwrap();
+      await resendOtp().unwrap();
       restart();
       setAttempts(0);
       setHasError(false);
@@ -153,7 +162,10 @@ export const OtpScreen: React.FC = () => {
       });
     } catch (err) {
       const mapped = mapApiError(err as never);
-      toast.error({ title: 'Could not resend', message: mapped.message });
+      toast.error({
+        title: mapped.status === 429 ? 'Too many requests' : 'Could not resend',
+        message: mapped.message,
+      });
     }
   };
 
@@ -166,7 +178,7 @@ export const OtpScreen: React.FC = () => {
       <View style={styles.intro}>
         <Text style={styles.title}>Enter verification code</Text>
         <Text style={styles.subtitle}>
-          We sent a 4-digit code to{'\n'}
+          We sent a 6-digit code to{'\n'}
           <Text style={styles.phoneText}>+91 {phone}</Text>
         </Text>
       </View>
@@ -211,10 +223,6 @@ export const OtpScreen: React.FC = () => {
         loading={isProcessing}
         disabled={otp.length !== OTP_LENGTH || isProcessing || blocked}
       />
-
-      <Text style={styles.mockHint}>
-        Demo mode: use OTP <Text style={styles.mockOtp}>1234</Text>
-      </Text>
     </Screen>
   );
 };
@@ -268,16 +276,5 @@ const styles = StyleSheet.create({
   spacer: {
     flex: 1,
     minHeight: spacing['3xl'],
-  },
-  mockHint: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.base,
-  },
-  mockOtp: {
-    color: colors.primary,
-    fontWeight: '700',
-    fontFamily: 'monospace',
   },
 });

@@ -30,6 +30,7 @@ import { ChatListScreen } from '@/screens/chat/ChatListScreen';
 import { BuyerPurchaseHistoryScreen } from '@/screens/buyer/BuyerPurchaseHistoryScreen';
 import { SellerSalesHistoryScreen } from '@/screens/seller/SellerSalesHistoryScreen';
 import { NotificationCenterScreen } from '@/screens/notifications/NotificationCenterScreen';
+import { NotificationDetailScreen } from '@/screens/notifications/NotificationDetailScreen';
 import { ForgotPasswordPhoneScreen } from '@/screens/auth/ForgotPasswordPhoneScreen';
 import { ForgotPasswordOtpScreen } from '@/screens/auth/ForgotPasswordOtpScreen';
 import { ForgotPasswordResetScreen } from '@/screens/auth/ForgotPasswordResetScreen';
@@ -144,6 +145,10 @@ export const MainNavigator: React.FC = () => {
       />
       <Stack.Screen name="SalesHistory" component={SellerSalesHistoryScreen} />
       <Stack.Screen name="Notifications" component={NotificationCenterScreen} />
+      <Stack.Screen
+        name="NotificationDetail"
+        component={NotificationDetailScreen}
+      />
       <Stack.Screen
         name="ForgotPasswordPhone"
         component={ForgotPasswordPhoneScreen}

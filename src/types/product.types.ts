@@ -51,6 +51,8 @@ export interface GetListingResponseData {
   listing: Listing;
 }
 
+export type InterestStatus = 'pending' | 'completed' | 'rejected';
+
 export interface Interest {
   _id: string;
   listingId: string;
@@ -60,7 +62,7 @@ export interface Interest {
   buyerPhone?: string;
   buyerName?: string;
   buyerLocation?: GeoPoint;
-  status: 'pending' | 'completed' | 'rejected';
+  status: InterestStatus;
   createdAt: string;
 }
 
@@ -140,4 +142,19 @@ export interface GetMyListingsResponseData {
 export interface DeleteListingResponseData {
   id: string;
   status: ListingStatus;
+}
+
+export interface SearchListingsParams {
+  q?: string;
+  limit?: number;
+  skip?: number;
+}
+
+export interface SearchListingsResponseData {
+  listings: Listing[];
+  count: number;
+}
+
+export interface SearchAutocompleteResponseData {
+  suggestions: string[];
 }

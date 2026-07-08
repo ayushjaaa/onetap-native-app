@@ -17,32 +17,30 @@ import {
   LayoutDashboard,
   Sparkles,
 } from 'lucide-react-native';
-import {
-  formatINR,
-  type PackagePlan,
-  STUB_PACKAGES,
-} from '@/data/packagesCatalog';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { formatINR } from '@/data/packagesCatalog';
+import { useGetPackagesQuery } from '@/api/walletApi';
+import { useGetMyListingsQuery } from '@/api/productsApi';
+import type { WalletPackage } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'PackageSelection'>;
+
+const EMPTY_PACKAGES: WalletPackage[] = [];
 
 export const PackageSelectionScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [helpOpen, setHelpOpen] = useState(false);
 
-  // TODO: derive from backend (sum of active user_packages.postSlots).
-  // For v1 we assume zero existing slots so the banner stays hidden.
-  const existingSlots = 0;
+  const { data: packagesData, isLoading } = useGetPackagesQuery();
+  const packages = packagesData?.packages ?? EMPTY_PACKAGES;
 
-  const handleBuy = (pkg: PackagePlan) => {
+  // Real source for "existing slots" — GET /listings/mine's summary, same
+  // value MyAdsScreen and ListAProductScreen use. Replaces the hardcoded 0.
+  const { data: myListingsData } = useGetMyListingsQuery();
+  const existingSlots = myListingsData?.summary.slotsRemaining ?? 0;
+
+  const handleBuy = (pkg: WalletPackage) => {
     navigation.navigate('PaymentResult', { packageId: pkg.id });
   };
 
@@ -78,9 +76,13 @@ export const PackageSelectionScreen: React.FC = () => {
           </View>
         ) : null}
 
-        {STUB_PACKAGES.map(pkg => (
-          <PackageCard key={pkg.id} pkg={pkg} onBuy={() => handleBuy(pkg)} />
-        ))}
+        {isLoading ? (
+          <Text style={styles.intro}>Loading packages…</Text>
+        ) : (
+          packages.map(pkg => (
+            <PackageCard key={pkg.id} pkg={pkg} onBuy={() => handleBuy(pkg)} />
+          ))
+        )}
 
         <Pressable
           onPress={() => setHelpOpen(true)}
@@ -119,18 +121,16 @@ export const PackageSelectionScreen: React.FC = () => {
           <View style={styles.sheetBlock}>
             <Text style={styles.sheetSubtitle}>Slot kab free hota hai?</Text>
             <Text style={styles.sheetBody}>
-              • Admin rejection (slot wapas mil jaata hai){`\n`}
-              • Sold mark hone par (Sell to buyer){`\n`}
-              • Aap manually live listing remove karein
+              • Admin rejection (slot wapas mil jaata hai){`\n`}• Sold mark hone
+              par (Sell to buyer){`\n`}• Aap manually live listing remove karein
             </Text>
           </View>
 
           <View style={styles.sheetBlock}>
             <Text style={styles.sheetSubtitle}>Validity</Text>
             <Text style={styles.sheetBody}>
-              Packages 90 ya 180 din ke liye valid hote hain. Expire hone par
-              unused slots gayab ho jaate hain. Multiple packages khareed kar
-              slots stack kar sakte ho.
+              Slots kabhi expire nahi hote. Multiple packages khareed kar slots
+              stack kar sakte ho.
             </Text>
           </View>
 
@@ -147,24 +147,30 @@ export const PackageSelectionScreen: React.FC = () => {
 };
 
 interface PackageCardProps {
-  pkg: PackagePlan;
+  pkg: WalletPackage;
   onBuy: () => void;
 }
 
+// The backend catalog has no "popular"/"discounted" concept — that's a pure
+// UI merchandising choice. Highlighting the middle tier (pkg-standard) is a
+// reasonable default; revisit if the catalog's id naming ever changes.
+const isPopular = (pkg: WalletPackage) => pkg.id === 'pkg-standard';
+
 const PackageCard: React.FC<PackageCardProps> = ({ pkg, onBuy }) => {
+  const popular = isPopular(pkg);
   return (
-    <View style={[styles.card, pkg.popular && styles.cardPopular]}>
+    <View style={[styles.card, popular && styles.cardPopular]}>
       <View
         style={[
           styles.sideBand,
-          { backgroundColor: pkg.popular ? colors.warning : colors.primary },
+          { backgroundColor: popular ? colors.warning : colors.primary },
         ]}
       />
 
       <View style={styles.cardBody}>
         <View style={styles.cardTopRow}>
           <Text style={styles.cardName}>{pkg.name}</Text>
-          {pkg.popular ? (
+          {popular ? (
             <View style={styles.popularPill}>
               <Sparkles size={layout.iconSize.sm} color={colors.warning} />
               <Text style={styles.popularText}>Most popular</Text>
@@ -175,34 +181,28 @@ const PackageCard: React.FC<PackageCardProps> = ({ pkg, onBuy }) => {
         <View style={styles.priceRow}>
           <Text style={styles.price}>{formatINR(pkg.priceInPaise)}</Text>
           <Text style={styles.priceUnit}> / pack</Text>
-          {pkg.originalPriceInPaise ? (
-            <Text style={styles.priceStrike}>
-              {formatINR(pkg.originalPriceInPaise)}
-            </Text>
-          ) : null}
         </View>
 
         <View style={styles.slotsRow}>
           <LayoutDashboard size={layout.iconSize.sm} color={colors.primary} />
           <Text style={styles.slotsText}>
-            {pkg.postSlots} concurrent post {pkg.postSlots === 1 ? 'slot' : 'slots'}
+            {pkg.postCredits} concurrent post{' '}
+            {pkg.postCredits === 1 ? 'slot' : 'slots'}
           </Text>
         </View>
 
         <View style={styles.benefits}>
-          {pkg.benefits.map(b => (
-            <View key={b} style={styles.benefitRow}>
-              <Check size={layout.iconSize.sm} color={colors.success} />
-              <Text style={styles.benefitText}>{b}</Text>
-            </View>
-          ))}
+          <View style={styles.benefitRow}>
+            <Check size={layout.iconSize.sm} color={colors.success} />
+            <Text style={styles.benefitText}>{pkg.description}</Text>
+          </View>
         </View>
 
         <Pressable
           onPress={onBuy}
           style={({ pressed }) => [
             styles.buyBtn,
-            pkg.popular && styles.buyBtnPopular,
+            popular && styles.buyBtnPopular,
             pressed && styles.buyBtnPressed,
           ]}
         >

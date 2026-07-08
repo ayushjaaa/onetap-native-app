@@ -1,6 +1,7 @@
 import { baseApi } from './baseApi';
 import type { ApiResponse } from '@/types/api.types';
 import type {
+  GetNotificationsParams,
   GetNotificationsResponseData,
   GetUnreadCountResponseData,
   MarkAllReadResponseData,
@@ -9,29 +10,33 @@ import type {
 
 export const notificationApi = baseApi.injectEndpoints({
   endpoints: builder => ({
-    getNotifications: builder.query<GetNotificationsResponseData, void>({
-      query: () => ({ url: '/notification', method: 'GET' }),
+    getNotifications: builder.query<
+      GetNotificationsResponseData,
+      GetNotificationsParams | undefined
+    >({
+      query: params => ({ url: '/notification', method: 'GET', params }),
       transformResponse: (
         response: ApiResponse<GetNotificationsResponseData>,
       ) => response.data,
-      providesTags: [{ type: 'Notification' as const, id: 'LIST' }],
+      keepUnusedDataFor: 30,
+      providesTags: result =>
+        result
+          ? [
+              { type: 'User' as const, id: 'NOTIFICATIONS' },
+              ...result.notifications.map(n => ({
+                type: 'User' as const,
+                id: `NOTIFICATION_${n._id}`,
+              })),
+            ]
+          : [{ type: 'User' as const, id: 'NOTIFICATIONS' }],
     }),
 
     getUnreadCount: builder.query<GetUnreadCountResponseData, void>({
       query: () => ({ url: '/notification/unread-count', method: 'GET' }),
       transformResponse: (response: ApiResponse<GetUnreadCountResponseData>) =>
         response.data,
-      providesTags: [{ type: 'Notification' as const, id: 'UNREAD_COUNT' }],
-    }),
-
-    markNotificationRead: builder.mutation<MarkReadResponseData, string>({
-      query: id => ({ url: `/notification/${id}/read`, method: 'PATCH' }),
-      transformResponse: (response: ApiResponse<MarkReadResponseData>) =>
-        response.data,
-      invalidatesTags: [
-        { type: 'Notification' as const, id: 'LIST' },
-        { type: 'Notification' as const, id: 'UNREAD_COUNT' },
-      ],
+      keepUnusedDataFor: 30,
+      providesTags: [{ type: 'User' as const, id: 'UNREAD_COUNT' }],
     }),
 
     markAllNotificationsRead: builder.mutation<MarkAllReadResponseData, void>({
@@ -39,8 +44,19 @@ export const notificationApi = baseApi.injectEndpoints({
       transformResponse: (response: ApiResponse<MarkAllReadResponseData>) =>
         response.data,
       invalidatesTags: [
-        { type: 'Notification' as const, id: 'LIST' },
-        { type: 'Notification' as const, id: 'UNREAD_COUNT' },
+        { type: 'User' as const, id: 'NOTIFICATIONS' },
+        { type: 'User' as const, id: 'UNREAD_COUNT' },
+      ],
+    }),
+
+    markNotificationRead: builder.mutation<MarkReadResponseData, string>({
+      query: id => ({ url: `/notification/${id}/read`, method: 'PATCH' }),
+      transformResponse: (response: ApiResponse<MarkReadResponseData>) =>
+        response.data,
+      invalidatesTags: (_result, _error, id) => [
+        { type: 'User' as const, id: 'NOTIFICATIONS' },
+        { type: 'User' as const, id: 'UNREAD_COUNT' },
+        { type: 'User' as const, id: `NOTIFICATION_${id}` },
       ],
     }),
   }),
@@ -51,6 +67,6 @@ export const {
   useGetNotificationsQuery,
   useLazyGetNotificationsQuery,
   useGetUnreadCountQuery,
-  useMarkNotificationReadMutation,
   useMarkAllNotificationsReadMutation,
+  useMarkNotificationReadMutation,
 } = notificationApi;

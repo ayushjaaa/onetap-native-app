@@ -77,7 +77,8 @@ export const HomeScreen: React.FC = () => {
   // No independent pollingInterval here — shares the same cache entry the
   // global notification-toast watcher (mounted in MainNavigator) already polls.
   const { data: unreadCountData } = useGetUnreadCountQuery();
-  const hasUnreadNotifications = (unreadCountData?.count ?? 0) > 0;
+  const unreadCount = unreadCountData?.count ?? 0;
+  const unreadBadgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const {
     data: topCategories = EMPTY_CATEGORIES,
@@ -170,7 +171,11 @@ export const HomeScreen: React.FC = () => {
             accessibilityLabel="Open notifications"
           >
             <Bell size={layout.iconSize.md} color={colors.textPrimary} />
-            {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
+            {unreadCount > 0 ? (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{unreadBadgeLabel}</Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
 
@@ -339,16 +344,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bellDot: {
+  bellBadge: {
     position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    width: spacing.sm,
-    height: spacing.sm,
-    borderRadius: spacing.sm / 2,
+    top: -spacing.xs,
+    right: -spacing.xs,
+    minWidth: spacing.lg,
+    height: spacing.lg,
+    borderRadius: spacing.lg / 2,
+    paddingHorizontal: spacing.xs / 2,
     backgroundColor: colors.error,
     borderWidth: 1.5,
     borderColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: {
+    ...typography.caption,
+    fontSize: fontSize.xs,
+    lineHeight: fontSize.xs,
+    color: colors.white,
+    fontWeight: '700',
   },
   welcome: {
     marginTop: spacing.xl,

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -23,13 +23,17 @@ import {
   X,
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { useToast } from '@/hooks/useToast';
+import { useLocation } from '@/hooks/useLocation';
+import { setLocation as setLocationAction } from '@/store/locationSlice';
 import {
   type CategoryPickResult,
   CategoryPickerSheet,
 } from '@/components/marketplace';
 import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
 import { useCreateListingMutation } from '@/api/productsApi';
+import { useGetWalletQuery } from '@/api/walletApi';
 import { mapApiError } from '@/utils/errorMapper';
 import type { ListingCondition } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
@@ -65,20 +69,9 @@ const CONDITION_TO_BACKEND: Record<Condition, ListingCondition> = {
   parts: 'Poor',
 };
 
-const PHOTO_MIN = 1;
 const PHOTO_MAX = 8;
-const TITLE_MIN = 5;
 const TITLE_MAX = 100;
-const DESC_MIN = 20;
 const DESC_MAX = 2000;
-const PRICE_MIN = 1;
-const PRICE_MAX = 9999999;
-
-// Stub: pretend the user has 3 slots free. Real value will come from the
-// wallet endpoint (sum of active package slots minus pending+live count).
-// Typed as `number` so the screen's "1 slot vs N slots" pluralization
-// comparison isn't narrowed away by TS literal inference.
-const STUB_SLOTS_AVAILABLE: number = 3;
 
 // Regexes to soft-warn about contact info pasted into the title / desc.
 // Backend will hard-flag too, so this is purely a UX nudge.
@@ -109,11 +102,45 @@ const STUB_COLOURS = [
 
 export const ListAProductScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const dispatch = useAppDispatch();
   const toast = useToast();
   const user = useAppSelector(state => state.auth.user);
   const location = useAppSelector(state => state.location);
+  const hasLocation = location.latitude != null && location.longitude != null;
+
+  // locationSlice is normally only populated once, during signup — an
+  // account created before that step existed, or one that skipped/denied
+  // permission then, would otherwise have no location forever and silently
+  // block posting. Fetch it here as a fallback whenever it's missing.
+  const {
+    status: locationFetchStatus,
+    error: locationFetchError,
+    fetch: fetchLocation,
+  } = useLocation();
+
+  useEffect(() => {
+    if (hasLocation || locationFetchStatus !== 'idle') return;
+    void (async () => {
+      const resolved = await fetchLocation();
+      if (resolved) {
+        dispatch(
+          setLocationAction({
+            latitude: resolved.latitude,
+            longitude: resolved.longitude,
+            city: resolved.city ?? null,
+            state: resolved.state ?? null,
+            address: resolved.address ?? null,
+            pincode: resolved.pincode ?? null,
+          }),
+        );
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLocation, locationFetchStatus]);
 
   const { data: categoryTree } = useGetCategoryTreeQuery();
+  const { data: walletData } = useGetWalletQuery();
+  const slotsAvailable = walletData?.wallet.postCredits ?? 0;
   const [createListing, { isLoading: submitting }] = useCreateListingMutation();
 
   const [photos, setPhotos] = useState<PhotoSlot[]>([]);
@@ -126,29 +153,17 @@ export const ListAProductScreen: React.FC = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
 
-  // ---- Validation
+  // Frontend field-level validation (length/format/required checks) was
+  // intentionally removed on request — the "Post ad" button is always
+  // tappable and the real backend (POST /marketplace/listings) is the
+  // single source of truth for what's valid, returning a 400 with a clear
+  // message for anything missing/malformed, surfaced via the error toast in
+  // handleSubmit. `category`/`condition` are still guarded there (not as
+  // validation, just because they're read directly into the request body
+  // and there's nothing sensible to send if nothing was picked).
   const trimmedTitle = title.trim();
-  const titleValid =
-    trimmedTitle.length >= TITLE_MIN && trimmedTitle.length <= TITLE_MAX;
-  const descValid =
-    description.length >= DESC_MIN && description.length <= DESC_MAX;
-  const photosValid = photos.length >= PHOTO_MIN;
-  const categoryValid = !!category;
-  const conditionValid = !!condition;
   const priceNum = priceStr.trim() === '' ? NaN : Number(priceStr);
-  const priceValid =
-    Number.isFinite(priceNum) && priceNum >= PRICE_MIN && priceNum <= PRICE_MAX;
-  const hasSlot = STUB_SLOTS_AVAILABLE > 0;
-
-  const canSubmit =
-    !submitting &&
-    photosValid &&
-    titleValid &&
-    descValid &&
-    categoryValid &&
-    conditionValid &&
-    priceValid &&
-    hasSlot;
+  const hasSlot = slotsAvailable > 0;
 
   const titleContactWarn = containsContact(trimmedTitle);
   const descContactWarn = containsContact(description);
@@ -196,7 +211,29 @@ export const ListAProductScreen: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!canSubmit || !category || !condition) return;
+    if (submitting) return;
+    // Frontend field validation removed on request — the real backend
+    // (POST /marketplace/listings) already validates title/description/
+    // price/category/condition and returns a 400 with a clear message if
+    // anything is missing or invalid, surfaced via the toast below. This
+    // screen only still guards `category`/`condition` being unset, since
+    // those two are read directly into the request payload below and there
+    // is no sensible value to send in their place (not a length/format
+    // check, just "was anything picked at all").
+    if (!category) {
+      toast.error({
+        title: 'Pick a category',
+        message: 'Choose a category before posting.',
+      });
+      return;
+    }
+    if (!condition) {
+      toast.error({
+        title: 'Pick a condition',
+        message: 'Choose a condition before posting.',
+      });
+      return;
+    }
     if (location.latitude == null || location.longitude == null) {
       toast.error({
         title: 'Location required',
@@ -253,8 +290,8 @@ export const ListAProductScreen: React.FC = () => {
           style={styles.slotChip}
         >
           <Text style={styles.slotChipText}>
-            {STUB_SLOTS_AVAILABLE} slot
-            {STUB_SLOTS_AVAILABLE === 1 ? '' : 's'}
+            {slotsAvailable} slot
+            {slotsAvailable === 1 ? '' : 's'}
           </Text>
           <ChevronDown size={layout.iconSize.sm} color={colors.primary} />
         </Pressable>
@@ -270,7 +307,7 @@ export const ListAProductScreen: React.FC = () => {
           keyboardShouldPersistTaps="handled"
         >
           {/* Photos */}
-          <SectionLabel text="Photos (1–8) — first is cover" />
+          <SectionLabel text="Photos (optional, up to 8) — first is cover" />
           <View style={styles.photoGrid}>
             {Array.from({ length: PHOTO_MAX }).map((_, i) => {
               const photo = photos[i];
@@ -303,6 +340,7 @@ export const ListAProductScreen: React.FC = () => {
                 return (
                   <Pressable
                     key={i}
+                    testID="add-photo-tile"
                     onPress={handleAddPhoto}
                     style={({ pressed }) => [
                       styles.photoTile,
@@ -468,11 +506,27 @@ export const ListAProductScreen: React.FC = () => {
             <MapPin size={layout.iconSize.sm} color={colors.primary} />
             <View style={styles.locationTextWrap}>
               <Text style={styles.locationText}>
-                {locationLine ?? 'Location not set'}
+                {hasLocation
+                  ? locationLine ?? 'Location set'
+                  : locationFetchStatus === 'fetching' ||
+                    locationFetchStatus === 'requesting'
+                  ? 'Fetching your location…'
+                  : 'Location not set'}
               </Text>
-              <Text style={styles.locationHint}>
-                Different jagah ka product? Profile se location update karein.
-              </Text>
+              {!hasLocation && locationFetchError ? (
+                <Pressable
+                  onPress={() => void fetchLocation()}
+                  hitSlop={spacing.sm}
+                >
+                  <Text style={[styles.locationHint, styles.fieldHintWarn]}>
+                    ⚠ {locationFetchError} Tap to retry.
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.locationHint}>
+                  Different jagah ka product? Profile se location update karein.
+                </Text>
+              )}
             </View>
           </View>
         </ScrollView>
@@ -487,11 +541,11 @@ export const ListAProductScreen: React.FC = () => {
         </View>
         <Pressable
           onPress={handleSubmit}
-          disabled={!canSubmit}
+          disabled={submitting}
           style={({ pressed }) => [
             styles.primaryBtn,
-            !canSubmit && styles.primaryBtnDisabled,
-            pressed && canSubmit && styles.primaryBtnPressed,
+            submitting && styles.primaryBtnDisabled,
+            pressed && !submitting && styles.primaryBtnPressed,
           ]}
         >
           {submitting ? (
@@ -514,7 +568,7 @@ export const ListAProductScreen: React.FC = () => {
       <SlotChipSheet
         visible={slotSheetOpen}
         onClose={() => setSlotSheetOpen(false)}
-        slotsAvailable={STUB_SLOTS_AVAILABLE}
+        slotsAvailable={slotsAvailable}
         onViewWallet={() => {
           setSlotSheetOpen(false);
           navigation.navigate('ProductWallet');

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,17 +24,15 @@ import {
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useToast } from '@/hooks/useToast';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { useImageUpload } from '@/hooks/useImageUpload';
+import { buildMediaUrl } from '@/utils/media';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
-type Nav = NativeStackNavigationProp<MainStackParamList, 'IndividualOnboarding'>;
+type Nav = NativeStackNavigationProp<
+  MainStackParamList,
+  'IndividualOnboarding'
+>;
 
 const NAME_MIN = 3;
 const NAME_MAX = 40;
@@ -62,12 +61,15 @@ export const IndividualOnboardingScreen: React.FC = () => {
   const [bio, setBio] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const { pick: pickPhoto, isUploading: isUploadingPhoto } =
+    useImageUpload('avatar');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
 
   const trimmedName = name.trim();
-  const nameValid = trimmedName.length >= NAME_MIN && trimmedName.length <= NAME_MAX;
+  const nameValid =
+    trimmedName.length >= NAME_MIN && trimmedName.length <= NAME_MAX;
   const bioValid = bio.length <= BIO_MAX;
   const canSubmit = nameValid && bioValid && !isSubmitting;
 
@@ -82,13 +84,9 @@ export const IndividualOnboardingScreen: React.FC = () => {
     );
   };
 
-  const handlePhotoPress = () => {
-    // TODO: integrate image picker (shared with S10 photo grid).
-    // For v1, surface a stub toast so the placeholder is testable.
-    toast.info({
-      title: 'Image picker coming with S10',
-      message: "We'll wire camera / gallery as part of the post-ad flow.",
-    });
+  const handlePhotoPress = async () => {
+    const uploadedUrl = await pickPhoto();
+    if (uploadedUrl) setPhotoUri(uploadedUrl);
   };
 
   const handleSubmit = async () => {
@@ -143,6 +141,7 @@ export const IndividualOnboardingScreen: React.FC = () => {
         >
           <Pressable
             onPress={handlePhotoPress}
+            disabled={isUploadingPhoto}
             style={({ pressed }) => [
               styles.avatarWrap,
               pressed && styles.avatarWrapPressed,
@@ -151,8 +150,13 @@ export const IndividualOnboardingScreen: React.FC = () => {
             accessibilityLabel="Upload profile photo"
           >
             <View style={styles.avatarCircle}>
-              {photoUri ? (
-                <View style={styles.avatarFilled} />
+              {isUploadingPhoto ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : photoUri ? (
+                <Image
+                  source={{ uri: buildMediaUrl(photoUri) }}
+                  style={styles.avatarPhoto}
+                />
               ) : (
                 <Camera size={28} color={colors.primary} />
               )}
@@ -301,7 +305,9 @@ export const IndividualOnboardingScreen: React.FC = () => {
             <View style={styles.successCircle}>
               <CheckCircle2 size={72} color={colors.success} />
             </View>
-            <Text style={styles.successTitle}>You're a verified seller! 🎉</Text>
+            <Text style={styles.successTitle}>
+              You're a verified seller! 🎉
+            </Text>
             <Text style={styles.successBody}>
               Ab apna pehla product post karne ke liye ek package pick karein.
             </Text>
@@ -388,10 +394,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarFilled: {
+  avatarPhoto: {
     width: '100%',
     height: '100%',
-    backgroundColor: colors.surface,
   },
   avatarHint: {
     ...typography.caption,

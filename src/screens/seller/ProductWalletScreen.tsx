@@ -1,107 +1,22 @@
 import React from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ChevronLeft, Inbox, Minus, Plus } from 'lucide-react-native';
+import { ShimmerCard } from '@/components/common/Shimmer';
+import { WalletReceiptSheet } from '@/components/wallet/WalletReceiptSheet';
 import {
-  AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
-  Inbox,
-  Minus,
-  Package as PackageIcon,
-  Plus,
-} from 'lucide-react-native';
-import { formatINR } from '@/data/packagesCatalog';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+  useGetWalletQuery,
+  useGetWalletTransactionsQuery,
+} from '@/api/walletApi';
+import type { WalletTransaction } from '@/types';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ProductWallet'>;
 
-// ---- Stub data (replace with GET /me/wallet + /me/wallet/ledger) ------------
-
-interface ActivePackage {
-  id: string;
-  name: string;
-  postSlots: number;
-  validTillIso: string;
-  purchasedAtIso: string;
-  pricePaidInPaise: number;
-}
-
-interface LedgerEntry {
-  id: string;
-  kind: 'credit' | 'debit';
-  slots: number;
-  reason: string;
-  atIso: string;
-}
-
-const STUB_ACTIVE: ActivePackage[] = [
-  {
-    id: 'pkg_001',
-    name: 'Pro Pack',
-    postSlots: 5,
-    validTillIso: '2026-08-12',
-    purchasedAtIso: '2026-05-14',
-    pricePaidInPaise: 19900,
-  },
-  {
-    id: 'pkg_002',
-    name: 'Starter',
-    postSlots: 1,
-    validTillIso: '2026-05-22',
-    purchasedAtIso: '2026-02-22',
-    pricePaidInPaise: 4900,
-  },
-];
-
-const STUB_LEDGER: LedgerEntry[] = [
-  {
-    id: 'l1',
-    kind: 'credit',
-    slots: 5,
-    reason: 'Pro Pack purchased',
-    atIso: '2026-05-14',
-  },
-  {
-    id: 'l2',
-    kind: 'debit',
-    slots: 1,
-    reason: 'Posted iPhone 13',
-    atIso: '2026-05-14',
-  },
-  {
-    id: 'l3',
-    kind: 'credit',
-    slots: 1,
-    reason: 'Listing rejected — slot refunded',
-    atIso: '2026-05-15',
-  },
-  {
-    id: 'l4',
-    kind: 'debit',
-    slots: 1,
-    reason: 'Posted Honda Activa',
-    atIso: '2026-05-16',
-  },
-];
-
-// Stub aggregates that would normally come from server.
-const STUB_USED_SLOTS = 2;
+const EMPTY_TRANSACTIONS: WalletTransaction[] = [];
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -114,28 +29,31 @@ const formatShortDate = (iso: string): string => {
   });
 };
 
-const daysUntil = (iso: string): number => {
-  const target = new Date(iso).getTime();
-  const now = Date.now();
-  return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+const KIND_LABEL: Record<WalletTransaction['kind'], string> = {
+  topup: 'Wallet top-up',
+  package_purchase: 'Package purchased',
+  bid_spend: 'Bid placed',
+  bid_refund: 'Bid refunded',
+  manual: 'Manual adjustment',
 };
 
 // ---- Screen -----------------------------------------------------------------
 
 export const ProductWalletScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const [receiptTxId, setReceiptTxId] = React.useState<string | null>(null);
 
-  const activePackages = STUB_ACTIVE;
-  const ledger = STUB_LEDGER;
-  const usedSlots = STUB_USED_SLOTS;
+  const { data: walletData, isLoading: isLoadingWallet } = useGetWalletQuery();
+  const { data: txData, isLoading: isLoadingTx } =
+    useGetWalletTransactionsQuery({ limit: 20 });
 
-  const totalSlots = activePackages.reduce((sum, p) => sum + p.postSlots, 0);
-  const availableSlots = Math.max(0, totalSlots - usedSlots);
-  const usagePct = totalSlots > 0 ? Math.min(1, usedSlots / totalSlots) : 0;
+  const availableSlots = walletData?.wallet.postCredits ?? 0;
+  const postSlotTransactions = (
+    txData?.transactions ?? EMPTY_TRANSACTIONS
+  ).filter(t => t.field === 'postCredits');
 
-  const hasNoPackages = activePackages.length === 0;
-  const allExpired =
-    !hasNoPackages && activePackages.every(p => daysUntil(p.validTillIso) <= 0);
+  const hasNoSlots = !isLoadingWallet && availableSlots === 0;
+  const isLoading = isLoadingWallet || isLoadingTx;
 
   const handlePostProduct = () => {
     navigation.navigate('ListProduct');
@@ -163,20 +81,22 @@ export const ProductWalletScreen: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {hasNoPackages ? (
+        {isLoading ? (
+          <>
+            <ShimmerCard />
+            <ShimmerCard />
+          </>
+        ) : hasNoSlots ? (
           <EmptyWalletView onBuyPress={handleBuyMore} />
         ) : (
           <>
             {/* Hero */}
             <View style={styles.heroCard}>
               <Text style={styles.heroAvail}>
-                {availableSlots}{' '}
-                {availableSlots === 1 ? 'slot' : 'slots'} available
+                {availableSlots} {availableSlots === 1 ? 'slot' : 'slots'}{' '}
+                available
               </Text>
-              <Text style={styles.heroSub}>
-                across {activePackages.length} active{' '}
-                {activePackages.length === 1 ? 'pack' : 'packs'}
-              </Text>
+              <Text style={styles.heroSub}>Post slots for new listings</Text>
               <View style={styles.heroBtnRow}>
                 <Pressable
                   onPress={handlePostProduct}
@@ -201,56 +121,35 @@ export const ProductWalletScreen: React.FC = () => {
               </View>
             </View>
 
-            {allExpired ? (
-              <View style={styles.expiredBanner}>
-                <AlertTriangle
-                  size={layout.iconSize.sm}
-                  color={colors.error}
-                />
-                <Text style={styles.expiredText}>
-                  No active slots. Buy a new pack to continue posting.
-                </Text>
-              </View>
-            ) : null}
-
-            {/* Slot usage */}
-            <SectionLabel text="Slot usage" />
-            <View style={styles.usageCard}>
-              <View style={styles.barTrack}>
-                <View
-                  style={[
-                    styles.barFill,
-                    { width: `${usagePct * 100}%` },
-                  ]}
-                />
-              </View>
-              <Text style={styles.usageLegend}>
-                {usedSlots} used / {totalSlots} total
-              </Text>
-            </View>
-
-            {/* Active packages */}
-            <SectionLabel text="Active packages" />
-            <View style={styles.sectionGroup}>
-              {activePackages.map(pkg => (
-                <ActivePackageRow key={pkg.id} pkg={pkg} />
-              ))}
-            </View>
-
             {/* Ledger */}
             <SectionLabel text="Activity" />
-            <View style={styles.sectionGroup}>
-              {ledger.map((entry, i) => (
-                <LedgerRow
-                  key={entry.id}
-                  entry={entry}
-                  isLast={i === ledger.length - 1}
-                />
-              ))}
-            </View>
+            {postSlotTransactions.length === 0 ? (
+              <View style={styles.sectionGroup}>
+                <Text style={styles.emptyLedgerText}>
+                  No slot activity yet.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.sectionGroup}>
+                {postSlotTransactions.map((entry, i) => (
+                  <LedgerRow
+                    key={entry._id}
+                    entry={entry}
+                    isLast={i === postSlotTransactions.length - 1}
+                    onPress={() => setReceiptTxId(entry._id)}
+                  />
+                ))}
+              </View>
+            )}
           </>
         )}
       </ScrollView>
+
+      <WalletReceiptSheet
+        visible={receiptTxId != null}
+        transactionId={receiptTxId}
+        onClose={() => setReceiptTxId(null)}
+      />
     </SafeAreaView>
   );
 };
@@ -261,56 +160,21 @@ const SectionLabel: React.FC<{ text: string }> = ({ text }) => (
   <Text style={styles.sectionLabel}>{text.toUpperCase()}</Text>
 );
 
-const ActivePackageRow: React.FC<{ pkg: ActivePackage }> = ({ pkg }) => {
-  const remainingDays = daysUntil(pkg.validTillIso);
-  const expiringSoon = remainingDays > 0 && remainingDays <= 7;
-  const expired = remainingDays <= 0;
-
+const LedgerRow: React.FC<{
+  entry: WalletTransaction;
+  isLast: boolean;
+  onPress: () => void;
+}> = ({ entry, isLast, onPress }) => {
+  const isCredit = entry.type === 'credit';
   return (
     <Pressable
+      onPress={onPress}
       style={({ pressed }) => [
-        styles.activeRow,
-        pressed && styles.activeRowPressed,
+        styles.ledgerRow,
+        !isLast && styles.ledgerRowDivider,
+        pressed && styles.ledgerRowPressed,
       ]}
     >
-      <View style={styles.activeIconWrap}>
-        <PackageIcon size={layout.iconSize.base} color={colors.primary} />
-      </View>
-      <View style={styles.activeText}>
-        <Text style={styles.activeName}>
-          {pkg.name} · {pkg.postSlots}{' '}
-          {pkg.postSlots === 1 ? 'slot' : 'slots'}
-        </Text>
-        {expired ? (
-          <View style={styles.expiryRow}>
-            <Text style={styles.expiryExpired}>Expired</Text>
-          </View>
-        ) : expiringSoon ? (
-          <View style={styles.expiryRow}>
-            <Text style={styles.expiryWarning}>
-              ⚠ Expires in {remainingDays}{' '}
-              {remainingDays === 1 ? 'day' : 'days'}
-            </Text>
-          </View>
-        ) : (
-          <Text style={styles.activeSub}>
-            Valid till {formatShortDate(pkg.validTillIso)} ·{' '}
-            {formatINR(pkg.pricePaidInPaise)} paid
-          </Text>
-        )}
-      </View>
-      <ChevronRight size={layout.iconSize.md} color={colors.textMuted} />
-    </Pressable>
-  );
-};
-
-const LedgerRow: React.FC<{ entry: LedgerEntry; isLast: boolean }> = ({
-  entry,
-  isLast,
-}) => {
-  const isCredit = entry.kind === 'credit';
-  return (
-    <View style={[styles.ledgerRow, !isLast && styles.ledgerRowDivider]}>
       <View
         style={[
           styles.ledgerIconWrap,
@@ -331,12 +195,14 @@ const LedgerRow: React.FC<{ entry: LedgerEntry; isLast: boolean }> = ({
           ]}
         >
           {isCredit ? '+' : '−'}
-          {entry.slots} {entry.slots === 1 ? 'slot' : 'slots'}
+          {entry.amount} {entry.amount === 1 ? 'slot' : 'slots'}
         </Text>
-        <Text style={styles.ledgerReason}>{entry.reason}</Text>
+        <Text style={styles.ledgerReason}>
+          {entry.description || KIND_LABEL[entry.kind]}
+        </Text>
       </View>
-      <Text style={styles.ledgerDate}>{formatShortDate(entry.atIso)}</Text>
-    </View>
+      <Text style={styles.ledgerDate}>{formatShortDate(entry.createdAt)}</Text>
+    </Pressable>
   );
 };
 
@@ -364,10 +230,6 @@ const EmptyWalletView: React.FC<{ onBuyPress: () => void }> = ({
 );
 
 // ---- Styles -----------------------------------------------------------------
-
-const ACTIVE_ICON_CIRCLE = 40;
-const LEDGER_ICON_CIRCLE = 28;
-const BAR_HEIGHT = 8;
 
 const styles = StyleSheet.create({
   safe: {
@@ -462,25 +324,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.99 }],
   },
 
-  // Expired banner
-  expiredBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    backgroundColor: 'rgba(239, 68, 68, 0.10)',
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.base,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
-  },
-  expiredText: {
-    flex: 1,
-    ...typography.caption,
-    color: colors.textPrimary,
-  },
-
   // Section label
   sectionLabel: {
     ...typography.label,
@@ -488,32 +331,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginTop: spacing.xl,
     marginBottom: spacing.sm,
-  },
-
-  // Usage card
-  usageCard: {
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-  },
-  barTrack: {
-    width: '100%',
-    height: BAR_HEIGHT,
-    borderRadius: BAR_HEIGHT / 2,
-    backgroundColor: colors.whiteAlpha04,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    backgroundColor: colors.primary,
-    borderRadius: BAR_HEIGHT / 2,
-  },
-  usageLegend: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
   },
 
   // Section group (card with rows inside)
@@ -524,50 +341,11 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSubtle,
     overflow: 'hidden',
   },
-
-  // Active package row
-  activeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.base,
-    gap: spacing.md,
-  },
-  activeRowPressed: {
-    backgroundColor: colors.whiteAlpha04,
-  },
-  activeIconWrap: {
-    width: ACTIVE_ICON_CIRCLE,
-    height: ACTIVE_ICON_CIRCLE,
-    borderRadius: ACTIVE_ICON_CIRCLE / 2,
-    backgroundColor: colors.primaryAlpha15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeText: {
-    flex: 1,
-  },
-  activeName: {
-    ...typography.bodyBold,
-    color: colors.textPrimary,
-  },
-  activeSub: {
+  emptyLedgerText: {
     ...typography.caption,
     color: colors.textMuted,
-    marginTop: spacing['2xs'],
-  },
-  expiryRow: {
-    marginTop: spacing['2xs'],
-  },
-  expiryWarning: {
-    ...typography.caption,
-    color: colors.warning,
-    fontWeight: '700',
-  },
-  expiryExpired: {
-    ...typography.caption,
-    color: colors.error,
-    fontWeight: '700',
+    padding: spacing.base,
+    textAlign: 'center',
   },
 
   // Ledger row
@@ -582,10 +360,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  ledgerRowPressed: {
+    backgroundColor: colors.whiteAlpha04,
+  },
   ledgerIconWrap: {
-    width: LEDGER_ICON_CIRCLE,
-    height: LEDGER_ICON_CIRCLE,
-    borderRadius: LEDGER_ICON_CIRCLE / 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
