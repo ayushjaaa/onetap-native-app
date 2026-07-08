@@ -35,6 +35,7 @@ import { ForgotPasswordOtpScreen } from '@/screens/auth/ForgotPasswordOtpScreen'
 import { ForgotPasswordResetScreen } from '@/screens/auth/ForgotPasswordResetScreen';
 import { BottomNavBar, type NavTabKey } from '@/components/marketplace';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { useNotificationToasts } from '@/hooks/useNotificationToasts';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import type {
   MainStackParamList,
@@ -97,6 +98,10 @@ const TabsNavigator: React.FC = () => {
 };
 
 export const MainNavigator: React.FC = () => {
+  // Mounted exactly once here (not per-screen) so only one poller/toast-watcher
+  // instance ever runs — avoids duplicate toasts for the same notification.
+  useNotificationToasts();
+
   return (
     <Stack.Navigator
       screenOptions={{
@@ -125,14 +130,8 @@ export const MainNavigator: React.FC = () => {
         name="PackageSelection"
         component={PackageSelectionScreen}
       />
-      <Stack.Screen
-        name="PaymentResult"
-        component={PaymentResultScreen}
-      />
-      <Stack.Screen
-        name="ProductWallet"
-        component={ProductWalletScreen}
-      />
+      <Stack.Screen name="PaymentResult" component={PaymentResultScreen} />
+      <Stack.Screen name="ProductWallet" component={ProductWalletScreen} />
       <Stack.Screen name="ListProduct" component={ListAProductScreen} />
       <Stack.Screen
         name="ChatConversation"
@@ -143,14 +142,8 @@ export const MainNavigator: React.FC = () => {
         name="PurchaseHistory"
         component={BuyerPurchaseHistoryScreen}
       />
-      <Stack.Screen
-        name="SalesHistory"
-        component={SellerSalesHistoryScreen}
-      />
-      <Stack.Screen
-        name="Notifications"
-        component={NotificationCenterScreen}
-      />
+      <Stack.Screen name="SalesHistory" component={SellerSalesHistoryScreen} />
+      <Stack.Screen name="Notifications" component={NotificationCenterScreen} />
       <Stack.Screen
         name="ForgotPasswordPhone"
         component={ForgotPasswordPhoneScreen}

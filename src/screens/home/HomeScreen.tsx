@@ -23,7 +23,8 @@ import { Shimmer, ShimmerCard } from '@/components/common/Shimmer';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { useGetTopCategoriesQuery } from '@/api/categoriesApi';
-import { useGetFeedQuery } from '@/api/productsApi';
+import { useGetTrendingListingsQuery } from '@/api/productsApi';
+import { useGetUnreadCountQuery } from '@/api/notificationApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import type { CategoryNode, Listing } from '@/types';
 import { formatRelativeShort } from '@/data/listingsStub';
@@ -73,6 +74,11 @@ export const HomeScreen: React.FC = () => {
 
   const sellerBannerState = resolveSellerBannerState(user);
 
+  // No independent pollingInterval here — shares the same cache entry the
+  // global notification-toast watcher (mounted in MainNavigator) already polls.
+  const { data: unreadCountData } = useGetUnreadCountQuery();
+  const hasUnreadNotifications = (unreadCountData?.count ?? 0) > 0;
+
   const {
     data: topCategories = EMPTY_CATEGORIES,
     isLoading: categoriesLoading,
@@ -84,26 +90,26 @@ export const HomeScreen: React.FC = () => {
 
   const hasLocation = location.latitude != null && location.longitude != null;
   const {
-    data: feedData,
+    data: trendingData,
     isLoading: isLoadingTrending,
-    error: feedError,
-  } = useGetFeedQuery(
+    error: trendingError,
+  } = useGetTrendingListingsQuery(
     hasLocation
       ? { lat: location.latitude as number, lng: location.longitude as number }
       : skipToken,
   );
 
   console.log(
-    '[HomeScreen] trending feed query args:',
+    '[HomeScreen] trending query args:',
     hasLocation
       ? { lat: location.latitude, lng: location.longitude }
       : 'skipped (no location yet)',
   );
-  console.log('[HomeScreen] trending feed response:', feedData);
-  console.log('[HomeScreen] trending feed error:', feedError);
+  console.log('[HomeScreen] trending response:', trendingData);
+  console.log('[HomeScreen] trending error:', trendingError);
 
   const trending: ListingCardData[] = (
-    feedData?.listings ?? EMPTY_LISTINGS
+    trendingData?.listings ?? EMPTY_LISTINGS
   ).map(toCardData);
 
   const handleBecomeSellerPress = () => {
@@ -164,7 +170,7 @@ export const HomeScreen: React.FC = () => {
             accessibilityLabel="Open notifications"
           >
             <Bell size={layout.iconSize.md} color={colors.textPrimary} />
-            <View style={styles.bellDot} />
+            {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
           </Pressable>
         </View>
 

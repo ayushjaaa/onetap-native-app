@@ -16,6 +16,10 @@ export const MIN_NAME_LENGTH = 2;
 export const SPLASH_MIN_DURATION_MS = 1500;
 export const TOAST_DURATION_MS = 3000;
 
+// Foreground poll for new notifications — approximates push without a real
+// FCM/APNs/socket pipeline (see NOTIFICATION_POLL_INTERVAL_MS usage).
+export const NOTIFICATION_POLL_INTERVAL_MS = 15000;
+
 export const STORAGE_KEYS = {
   USER: 'user_profile',
   HAS_ONBOARDED: 'has_onboarded',

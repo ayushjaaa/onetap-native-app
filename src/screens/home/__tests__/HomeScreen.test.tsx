@@ -59,15 +59,15 @@ describe('HomeScreen trending (live feed)', () => {
     const calledUrls = (globalThis.fetch as jest.Mock).mock.calls.map(
       c => (c[0] as Request).url,
     );
-    expect(calledUrls.some(u => u.includes('/listings/feed'))).toBe(false);
+    expect(calledUrls.some(u => u.includes('/listings/trending'))).toBe(false);
   });
 
   it('fetches and renders the live feed once location is set', async () => {
     mockFetchByUrl({
       '/marketplace/categories/top': emptyCategoriesResponse,
-      '/marketplace/listings/feed': {
+      '/marketplace/listings/trending': {
         success: true,
-        message: 'Feed retrieved',
+        message: 'Trending listings retrieved',
         statusCode: 200,
         data: {
           listings: [
@@ -87,8 +87,6 @@ describe('HomeScreen trending (live feed)', () => {
               updatedAt: '2026-07-01T00:00:00.000Z',
             },
           ],
-          nextCursor: null,
-          hasMore: false,
         },
       },
     });
@@ -115,11 +113,11 @@ describe('HomeScreen trending (live feed)', () => {
   it('shows the empty state when the feed returns no listings', async () => {
     mockFetchByUrl({
       '/marketplace/categories/top': emptyCategoriesResponse,
-      '/marketplace/listings/feed': {
+      '/marketplace/listings/trending': {
         success: true,
-        message: 'Feed retrieved',
+        message: 'Trending listings retrieved',
         statusCode: 200,
-        data: { listings: [], nextCursor: null, hasMore: false },
+        data: { listings: [] },
       },
     });
 

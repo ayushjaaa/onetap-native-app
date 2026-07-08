@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
   Image,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -17,6 +19,7 @@ import type {
   NativeStackNavigationProp,
   NativeStackScreenProps,
 } from '@react-navigation/native-stack';
+import { skipToken } from '@reduxjs/toolkit/query/react';
 import {
   CheckCircle2,
   ChevronLeft,
@@ -38,24 +41,18 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useToast } from '@/hooks/useToast';
+import { useAppSelector } from '@/hooks/useAppSelector';
 import { formatINR } from '@/data/packagesCatalog';
+import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
 import {
-  findStubListing,
-  formatRelativeShort,
-  type InterestedBuyer,
-  isOwnedByCurrentSeller,
-  stubThumbColour,
-  type StubListing,
-} from '@/data/listingsStub';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+  useExpressInterestMutation,
+  useGetListingQuery,
+} from '@/api/productsApi';
+import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
+import { getDistanceKm } from '@/utils/geo';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
+import type { Interest, Listing, ListingStatus } from '@/types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ListingDetail'>;
 type Props = NativeStackScreenProps<MainStackParamList, 'ListingDetail'>;
@@ -65,21 +62,63 @@ const GALLERY_HEIGHT = SCREEN_WIDTH * 0.85;
 
 const HOLD_TO_CONFIRM_MS = 1000;
 
+// Local view-model for a seller's received interest, derived from the real
+// Interest doc + the seller's own device location (for distanceKm).
+interface InterestedBuyer {
+  id: string;
+  name: string;
+  initial: string;
+  locationLabel: string;
+  distanceKm: number | null;
+  interestedAtIso: string;
+}
+
+const toInterestedBuyer = (
+  interest: Interest,
+  deviceLat: number | null,
+  deviceLng: number | null,
+): InterestedBuyer => {
+  const name = interest.buyerName?.trim() || 'Interested buyer';
+  const [buyerLng, buyerLat] = interest.buyerLocation?.coordinates ?? [];
+  const distanceKm =
+    deviceLat != null &&
+    deviceLng != null &&
+    buyerLat != null &&
+    buyerLng != null
+      ? Math.round(getDistanceKm(deviceLat, deviceLng, buyerLat, buyerLng))
+      : null;
+  return {
+    id: interest._id,
+    name,
+    initial: name.charAt(0).toUpperCase(),
+    locationLabel: buyerLat != null ? 'Nearby buyer' : 'Location not shared',
+    distanceKm,
+    interestedAtIso: interest.createdAt,
+  };
+};
+
 // ---- Screen -----------------------------------------------------------------
 
 export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
+  const currentUserId = useAppSelector(state => state.auth.user?.id);
+  const deviceLocation = useAppSelector(state => state.location);
 
-  // TODO: replace with `useGetListingQuery(listingId)` once the listings
-  // service ships. For v1 we look up against the in-memory stub set so
-  // both MyAds → ListingDetail (seller view) and Home → ListingDetail
-  // (buyer view) can be exercised end-to-end with consistent data.
-  const baseListing = findStubListing(route.params.listingId);
+  const {
+    data: listingData,
+    isLoading: isListingLoading,
+    error: listingError,
+  } = useGetListingQuery(route.params.listingId);
 
-  const [listing, setListing] = useState<StubListing | null>(
-    baseListing ?? null,
-  );
+  // Local mutable copy seeded from the query — lets the seller's "sell to this
+  // buyer" hold-to-confirm action (not yet backed by a real endpoint, see
+  // handleSellConfirmed) optimistically reflect a Sold state without a refetch.
+  const [listing, setListing] = useState<Listing | null>(null);
+  useEffect(() => {
+    if (listingData?.listing) setListing(listingData.listing);
+  }, [listingData]);
+
   const [activeImage, setActiveImage] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [hasExpressedInterest, setHasExpressedInterest] = useState(false);
@@ -87,11 +126,35 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const [rejectionOpen, setRejectionOpen] = useState(false);
   const [sellTarget, setSellTarget] = useState<InterestedBuyer | null>(null);
   const [buyConfirmOpen, setBuyConfirmOpen] = useState(false);
-  const [buyConfirming, setBuyConfirming] = useState(false);
 
-  // Defensive: unknown listingId renders an inline error frame instead of
-  // crashing on undefined access.
-  if (!listing) {
+  const [expressInterest, { isLoading: buyConfirming }] =
+    useExpressInterestMutation();
+
+  const isSellerMode = !!listing && listing.sellerId === currentUserId;
+
+  const { data: receivedInterestsData } = useGetReceivedInterestsQuery(
+    isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
+  );
+  const interestedBuyers: InterestedBuyer[] = (
+    receivedInterestsData?.interests ?? []
+  )
+    .filter(i => i.listingId === listing?._id)
+    .map(i =>
+      toInterestedBuyer(i, deviceLocation.latitude, deviceLocation.longitude),
+    );
+
+  // Loading / not-found: query still in flight, or unknown/removed listingId.
+  if (isListingLoading) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.centeredError}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!listing || listingError) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.centeredError}>
@@ -111,8 +174,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
-  const isSellerMode = isOwnedByCurrentSeller(listing);
-  const isUnavailable = listing.status === 'sold';
+  const isUnavailable = listing.status === 'Sold';
 
   const handleBuyTap = () => {
     if (isUnavailable || hasExpressedInterest) return;
@@ -120,44 +182,49 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleBuyConfirm = async () => {
-    if (buyConfirming) return;
-    setBuyConfirming(true);
     try {
-      // TODO: real POST /listings/:id/interest with an idempotency key.
-      // Backend uses an upsert on (listingId, buyerId), so a network retry
-      // resolves to the same Interest row instead of spamming the seller.
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 600));
+      await expressInterest({ listingId: listing._id }).unwrap();
 
       setHasExpressedInterest(true);
       setBuyConfirmOpen(false);
       toast.success({
         title: 'Interest sent',
-        message: `${listing.seller.name} ko notify kar diya. Chat ya call ready hai.`,
+        message: `${
+          listing.seller?.name ?? 'Seller'
+        } ko notify kar diya. Chat ya call ready hai.`,
       });
-    } catch {
+    } catch (err: any) {
+      if (err?.status === 409) {
+        // Already expressed interest previously (e.g. re-tapped after a reload) —
+        // treat as success so the buyer still reaches the Chat/Call state.
+        setHasExpressedInterest(true);
+        setBuyConfirmOpen(false);
+        return;
+      }
       toast.error({
         title: "Couldn't send interest",
         message: 'Network issue — phir try karein.',
       });
-    } finally {
-      setBuyConfirming(false);
     }
   };
 
   const handleCallSeller = () => {
-    // TODO: deep-link to the dialer via Linking.openURL(`tel:${phone}`) once
-    // we accept the privacy implication on this screen.
-    toast.info({
-      title: `Call ${listing.seller.name}`,
-      message: listing.seller.phone,
-    });
+    const phone = listing.seller?.phone;
+    if (!phone) {
+      toast.info({
+        title: 'Number not available',
+        message: "Seller hasn't verified their phone number yet.",
+      });
+      return;
+    }
+    Linking.openURL(`tel:${phone}`);
   };
 
   const handleOpenChat = () => {
     navigation.navigate('ChatConversation', {
-      listingId: listing.id,
-      counterpartyId: listing.seller.id,
-      counterpartyName: listing.seller.name,
+      listingId: listing._id,
+      counterpartyId: listing.seller?.id,
+      counterpartyName: listing.seller?.name,
     });
   };
 
@@ -184,14 +251,15 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   const handleSellConfirmed = () => {
     if (!sellTarget) return;
-    // Optimistic local update — real backend transaction lands later.
+    // Optimistic local update — real "select buyer" transaction endpoint isn't
+    // wired yet (out of scope for the interests/seller-details work this screen
+    // otherwise ships), so this stays a local-only status flip for now.
     setListing(prev =>
       prev
         ? {
             ...prev,
-            status: 'sold',
-            soldToName: sellTarget.name,
-            soldAtIso: new Date().toISOString(),
+            status: 'Sold',
+            soldAt: new Date().toISOString(),
           }
         : prev,
     );
@@ -210,7 +278,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       >
         {/* Gallery */}
         <View style={styles.galleryWrap}>
-          {listing.images.length > 0 ? (
+          {listing.photos.length > 0 ? (
             <ScrollView
               horizontal
               pagingEnabled
@@ -222,13 +290,13 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 setActiveImage(idx);
               }}
             >
-              {listing.images.map((uri, i) => (
+              {listing.photos.map((uri, i) => (
                 <Image
                   key={i}
                   source={{ uri }}
                   style={[
                     styles.galleryImage,
-                    listing.status === 'sold' && styles.galleryDim,
+                    listing.status === 'Sold' && styles.galleryDim,
                   ]}
                   resizeMode="cover"
                 />
@@ -276,19 +344,16 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                     />
                   </Pressable>
                   <Pressable hitSlop={spacing.md} style={styles.iconBtn}>
-                    <Share2
-                      size={layout.iconSize.md}
-                      color={colors.white}
-                    />
+                    <Share2 size={layout.iconSize.md} color={colors.white} />
                   </Pressable>
                 </>
               )}
             </View>
           </View>
 
-          {listing.images.length > 1 ? (
+          {listing.photos.length > 1 ? (
             <View style={styles.dots}>
-              {listing.images.map((_, i) => (
+              {listing.photos.map((_, i) => (
                 <View
                   key={i}
                   style={[styles.dot, i === activeImage && styles.dotActive]}
@@ -302,17 +367,15 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         {isSellerMode ? (
           <StatusBanner
             status={listing.status}
-            viewCount={listing.viewCount}
-            soldToName={listing.soldToName}
-            soldAtIso={listing.soldAtIso}
-            reviewEtaHours={listing.reviewEtaHours}
+            soldToName={sellTarget?.name}
+            soldAtIso={listing.soldAt}
             onSeeReason={() => setRejectionOpen(true)}
           />
         ) : null}
 
         {/* Body */}
         <View style={styles.body}>
-          <Text style={styles.price}>{formatINR(listing.priceInPaise)}</Text>
+          <Text style={styles.price}>{formatINR(listing.price)}</Text>
           <Text style={styles.title}>{listing.title}</Text>
 
           {!isSellerMode &&
@@ -331,12 +394,12 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           <View style={styles.metaRow}>
             <View style={styles.metaItem}>
               <MapPin size={layout.iconSize.sm} color={colors.textMuted} />
-              <Text style={styles.metaText}>{listing.location}</Text>
+              <Text style={styles.metaText}>{listing.address ?? ''}</Text>
             </View>
             <View style={styles.metaItem}>
               <Clock size={layout.iconSize.sm} color={colors.textMuted} />
               <Text style={styles.metaText}>
-                {formatRelativeShort(listing.postedAtIso)}
+                {formatRelativeShort(listing.createdAt)}
               </Text>
             </View>
           </View>
@@ -354,13 +417,13 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           <Text style={styles.description}>{listing.description}</Text>
 
           {/* Seller-only: Interested buyers (Live only) */}
-          {isSellerMode && listing.status === 'live' ? (
+          {isSellerMode && listing.status === 'Live' ? (
             <InterestedBuyersSection
-              buyers={listing.interestedBuyers ?? []}
+              buyers={interestedBuyers}
               onSellTo={handleSellTo}
               onChat={buyer => {
                 navigation.navigate('ChatConversation', {
-                  listingId: listing.id,
+                  listingId: listing._id,
                   counterpartyId: buyer.id,
                   counterpartyName: buyer.name,
                 });
@@ -375,22 +438,30 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               <View style={styles.sellerCard}>
                 <View style={styles.sellerAvatar}>
                   <Text style={styles.sellerAvatarText}>
-                    {listing.seller.name.charAt(0)}
+                    {(listing.seller?.name ?? 'S').charAt(0)}
                   </Text>
                 </View>
                 <View style={styles.sellerInfo}>
                   <View style={styles.sellerNameRow}>
-                    <Text style={styles.sellerName}>{listing.seller.name}</Text>
-                    {listing.seller.isVerified ? (
+                    <Text style={styles.sellerName}>
+                      {listing.seller?.name ?? 'Seller'}
+                    </Text>
+                    {listing.seller?.isVerified ? (
                       <ShieldCheck
                         size={layout.iconSize.sm}
                         color={colors.success}
                       />
                     ) : null}
                   </View>
-                  <Text style={styles.sellerMeta}>
-                    {listing.seller.memberSince}
-                  </Text>
+                  {listing.seller?.memberSince ? (
+                    <Text style={styles.sellerMeta}>
+                      Member since{' '}
+                      {new Date(listing.seller.memberSince).toLocaleDateString(
+                        'en-IN',
+                        { month: 'short', year: 'numeric' },
+                      )}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             </>
@@ -422,10 +493,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               accessibilityRole="button"
               accessibilityLabel="Buy this product, cash on delivery"
             >
-              <ShoppingBag
-                size={layout.iconSize.md}
-                color={colors.white}
-              />
+              <ShoppingBag size={layout.iconSize.md} color={colors.white} />
               <View style={styles.buyTextWrap}>
                 <Text style={styles.buyTextPrimary}>Buy this product</Text>
                 <Text style={styles.buyTextSecondary}>
@@ -446,16 +514,18 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 />
                 <Text style={styles.chatText}>Chat</Text>
               </Pressable>
-              <Pressable
-                style={styles.callBtn}
-                onPress={handleCallSeller}
-                hitSlop={spacing.sm}
-              >
-                <Phone size={layout.iconSize.md} color={colors.white} />
-                <Text style={styles.callText} numberOfLines={1}>
-                  Call · {listing.seller.phone}
-                </Text>
-              </Pressable>
+              {listing.seller?.phone ? (
+                <Pressable
+                  style={styles.callBtn}
+                  onPress={handleCallSeller}
+                  hitSlop={spacing.sm}
+                >
+                  <Phone size={layout.iconSize.md} color={colors.white} />
+                  <Text style={styles.callText} numberOfLines={1}>
+                    Call · {listing.seller.phone}
+                  </Text>
+                </Pressable>
+              ) : null}
             </>
           )}
         </View>
@@ -473,7 +543,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           onPress={() => setMenuOpen(false)}
         >
           <View style={styles.menuPanel}>
-            {listing.status === 'live' ? (
+            {listing.status === 'Live' ? (
               <Pressable
                 onPress={handleRemove}
                 style={({ pressed }) => [
@@ -530,8 +600,8 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             </Text>
           </View>
           <Text style={styles.sheetHint}>
-            Listings are immutable — rejected listings can't be edited.
-            Naya listing post karein (1 slot consume hoga).
+            Listings are immutable — rejected listings can't be edited. Naya
+            listing post karein (1 slot consume hoga).
           </Text>
         </View>
       </Modal>
@@ -561,43 +631,35 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 // ---- Subcomponents ----------------------------------------------------------
 
 interface StatusBannerProps {
-  status: StubListing['status'];
-  viewCount?: number;
+  status: ListingStatus;
   soldToName?: string;
   soldAtIso?: string;
-  reviewEtaHours?: number;
   onSeeReason: () => void;
 }
 
 const StatusBanner: React.FC<StatusBannerProps> = ({
   status,
-  viewCount,
   soldToName,
   soldAtIso,
-  reviewEtaHours,
   onSeeReason,
 }) => {
-  if (status === 'pending') {
+  if (status === 'Pending') {
     return (
       <View style={[styles.statusBanner, styles.statusPending]}>
         <Clock size={layout.iconSize.sm} color={colors.warning} />
-        <Text style={styles.statusText}>
-          Pending admin review. Live in ~{reviewEtaHours ?? 24}h
-        </Text>
+        <Text style={styles.statusText}>Pending admin review</Text>
       </View>
     );
   }
-  if (status === 'live') {
+  if (status === 'Live') {
     return (
       <View style={[styles.statusBanner, styles.statusLive]}>
         <CheckCircle2 size={layout.iconSize.sm} color={colors.success} />
-        <Text style={styles.statusText}>
-          Live · {viewCount ?? 0} {viewCount === 1 ? 'view' : 'views'}
-        </Text>
+        <Text style={styles.statusText}>Live</Text>
       </View>
     );
   }
-  if (status === 'rejected') {
+  if (status === 'Rejected') {
     return (
       <Pressable
         onPress={onSeeReason}
@@ -611,7 +673,7 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
       </Pressable>
     );
   }
-  if (status === 'sold') {
+  if (status === 'Sold') {
     return (
       <View style={[styles.statusBanner, styles.statusSold]}>
         <CheckCircle2 size={layout.iconSize.sm} color={colors.textMuted} />
@@ -675,9 +737,7 @@ const InterestedBuyersSection: React.FC<InterestedBuyersSectionProps> = ({
                   onPress={() => onSellTo(buyer)}
                   style={styles.buyerSellBtn}
                 >
-                  <Text style={styles.buyerSellText}>
-                    Sell to this buyer
-                  </Text>
+                  <Text style={styles.buyerSellText}>Sell to this buyer</Text>
                 </Pressable>
               </View>
             </View>
@@ -764,10 +824,7 @@ const SellToConfirmModal: React.FC<SellToConfirmModalProps> = ({
             interested buyers ko notify hoga.
           </Text>
           <View style={styles.confirmHint}>
-            <CheckCircle2
-              size={layout.iconSize.sm}
-              color={colors.primary}
-            />
+            <CheckCircle2 size={layout.iconSize.sm} color={colors.primary} />
             <Text style={styles.confirmHintText}>
               Ye action ek slot free karega aapke Wallet mein.
             </Text>
@@ -804,7 +861,7 @@ const SellToConfirmModal: React.FC<SellToConfirmModalProps> = ({
 
 interface BuyConfirmSheetProps {
   visible: boolean;
-  listing: StubListing;
+  listing: Listing;
   confirming: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -832,7 +889,7 @@ const BuyConfirmSheet: React.FC<BuyConfirmSheetProps> = ({
           <View
             style={[
               styles.buyRecapThumb,
-              { backgroundColor: stubThumbColour(listing.id) },
+              { backgroundColor: stubThumbColour(listing._id) },
             ]}
           />
           <View style={styles.buyRecapText}>
@@ -840,17 +897,15 @@ const BuyConfirmSheet: React.FC<BuyConfirmSheetProps> = ({
               {listing.title}
             </Text>
           </View>
-          <Text style={styles.buyRecapPrice}>
-            {formatINR(listing.priceInPaise)}
-          </Text>
+          <Text style={styles.buyRecapPrice}>{formatINR(listing.price)}</Text>
         </View>
 
         <Text style={styles.buySheetHeading}>Confirm interest</Text>
 
         <Text style={styles.buySheetBody}>
-          Seller ko aapki interest dikh jayegi. Aap unhe direct chat ya
-          call kar sakte ho. Confirm karte hi aapka phone number unke
-          saath share ho jayega.
+          Seller ko aapki interest dikh jayegi. Aap unhe direct chat ya call kar
+          sakte ho. Confirm karte hi aapka phone number unke saath share ho
+          jayega.
         </Text>
 
         <View style={styles.buyPrivacyCard}>

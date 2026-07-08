@@ -7,15 +7,26 @@ import type {
 import { env } from '@/config/env';
 import { secureStorage } from '@/services/secureStorage';
 
+// Multipart file-upload endpoints must NOT get a manual Content-Type — fetch needs
+// to generate the 'multipart/form-data; boundary=...' header itself from the
+// FormData body. prepareHeaders has no access to the request body, only the
+// endpoint name, so it's keyed off that instead.
+const MULTIPART_ENDPOINTS = new Set([
+  'uploadAvatarImage',
+  'uploadListingImage',
+]);
+
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: env.API_URL,
   timeout: 15000,
-  prepareHeaders: async headers => {
+  prepareHeaders: async (headers, api) => {
     const token = await secureStorage.getToken();
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
-    headers.set('Content-Type', 'application/json');
+    if (!MULTIPART_ENDPOINTS.has(api.endpoint)) {
+      headers.set('Content-Type', 'application/json');
+    }
     headers.set('Accept', 'application/json');
     return headers;
   },
@@ -50,6 +61,8 @@ export const baseApi = createApi({
     'Chat',
     'Category',
     'Listing',
+    'Interest',
+    'Notification',
   ],
   endpoints: () => ({}),
 });

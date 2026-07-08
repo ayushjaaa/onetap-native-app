@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -12,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
+  Camera,
   ChevronRight,
   IndianRupee,
   KeyRound,
@@ -26,10 +28,13 @@ import {
 } from 'lucide-react-native';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { usePermission } from '@/hooks/usePermission';
 import { useToast } from '@/hooks/useToast';
-import { logout } from '@/store/authSlice';
+import { useImageUpload } from '@/hooks/useImageUpload';
+import { logout, setUser } from '@/store/authSlice';
 import { secureStorage } from '@/services/secureStorage';
 import { googleAuth } from '@/services/googleAuth';
+import { buildMediaUrl } from '@/utils/media';
 import { colors, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
@@ -81,6 +86,17 @@ export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
   const user = useAppSelector(state => state.auth.user);
+  const { can } = usePermission();
+  const { pick: pickAvatar, isUploading: isUploadingAvatar } =
+    useImageUpload('avatar');
+
+  const handleAvatarPress = async () => {
+    const avatarUrl = await pickAvatar();
+    if (avatarUrl && user) {
+      dispatch(setUser({ ...user, avatarUrl }));
+      toast.success({ title: 'Profile photo updated' });
+    }
+  };
   const location = useAppSelector(state => state.location);
 
   const handleLogout = () => {
@@ -131,8 +147,7 @@ export const ProfileScreen: React.FC = () => {
 
   const handleProductWallet = () => navigation.navigate('ProductWallet');
   const handleSalesHistory = () => navigation.navigate('SalesHistory');
-  const handleFinishSellerSetup = () =>
-    navigation.navigate('PackageSelection');
+  const handleFinishSellerSetup = () => navigation.navigate('PackageSelection');
   const handlePurchaseHistory = () => navigation.navigate('PurchaseHistory');
   const handleMessages = () => navigation.navigate('ChatList');
 
@@ -144,12 +159,31 @@ export const ProfileScreen: React.FC = () => {
       >
         {/* Header */}
         <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Image
-              source={require('@/assets/icons/img.png')}
-              style={styles.avatarImg}
-            />
-          </View>
+          <Pressable
+            onPress={handleAvatarPress}
+            disabled={isUploadingAvatar}
+            style={styles.avatarWrap}
+            accessibilityRole="button"
+            accessibilityLabel="Change profile photo"
+          >
+            <View style={styles.avatar}>
+              <Image
+                source={
+                  buildMediaUrl(user?.avatarUrl)
+                    ? { uri: buildMediaUrl(user?.avatarUrl) }
+                    : require('@/assets/icons/img.png')
+                }
+                style={styles.avatarImg}
+              />
+            </View>
+            <View style={styles.avatarEditBadge}>
+              {isUploadingAvatar ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <Camera size={14} color={colors.white} />
+              )}
+            </View>
+          </Pressable>
           <Text style={styles.name}>{user?.name ?? 'User'}</Text>
           <Text style={styles.email}>{user?.email}</Text>
           {user?.phone ? <Text style={styles.phone}>{user.phone}</Text> : null}
@@ -158,6 +192,11 @@ export const ProfileScreen: React.FC = () => {
               {user?.role?.toUpperCase() ?? 'USER'}
             </Text>
           </View>
+          {can('identity:admin') ? (
+            <View style={[styles.roleBadge, styles.adminBadge]}>
+              <Text style={styles.roleText}>ADMIN</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* Seller section — only renders for sellers (incl. mid-onboarding) */}
@@ -240,7 +279,12 @@ export const ProfileScreen: React.FC = () => {
 
         {/* Sign out */}
         <View style={[styles.card, styles.cardSpaced]}>
-          <Row Icon={LogOut} label="Sign out" onPress={handleLogout} destructive />
+          <Row
+            Icon={LogOut}
+            label="Sign out"
+            onPress={handleLogout}
+            destructive
+          />
         </View>
 
         <Text style={styles.version}>v1.0.0 · OneTap365</Text>
@@ -262,17 +306,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.xl,
   },
+  avatarWrap: {
+    marginBottom: spacing.base,
+  },
   avatar: {
     width: 96,
     height: 96,
     borderRadius: 48,
     overflow: 'hidden',
     backgroundColor: colors.card,
-    marginBottom: spacing.base,
   },
   avatarImg: {
     width: '100%',
     height: '100%',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.background,
   },
   name: {
     ...typography.h2,
@@ -296,6 +355,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(43, 179, 42, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(43, 179, 42, 0.4)',
+  },
+  adminBadge: {
+    marginTop: spacing.xs,
+    backgroundColor: 'rgba(179, 43, 43, 0.15)',
+    borderColor: 'rgba(179, 43, 43, 0.4)',
   },
   roleText: {
     ...typography.caption,

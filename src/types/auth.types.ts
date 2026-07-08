@@ -19,6 +19,11 @@ export interface User {
   isSellerApproved?: boolean;
   interests?: string | null;
   location?: UserLocation;
+  avatarUrl?: string | null;
+  // Capability strings from the backend RBAC system (e.g. 'identity:admin', 'kyc:approve').
+  // Only returned by /auth/me — drives show/hide in the app, not `role` (which the backend
+  // no longer returns on login and only ever used as a cosmetic signup hint).
+  permissions?: string[];
 }
 
 export interface RegisterRequest {

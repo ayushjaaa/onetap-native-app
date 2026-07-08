@@ -4,9 +4,14 @@ import type {
   CreateListingRequest,
   CreateListingResponseData,
   DeleteListingResponseData,
+  ExpressInterestRequest,
+  ExpressInterestResponseData,
   GetFeedParams,
   GetFeedResponseData,
+  GetListingResponseData,
   GetMyListingsResponseData,
+  GetTrendingParams,
+  GetTrendingResponseData,
   Listing,
 } from '@/types';
 
@@ -33,6 +38,57 @@ export const productsApi = baseApi.injectEndpoints({
               })),
             ]
           : [{ type: 'Listing' as const, id: 'FEED' }],
+    }),
+
+    getTrendingListings: builder.query<
+      GetTrendingResponseData,
+      GetTrendingParams
+    >({
+      query: params => ({
+        url: '/marketplace/listings/trending',
+        method: 'GET',
+        params,
+      }),
+      transformResponse: (response: ApiResponse<GetTrendingResponseData>) =>
+        response.data,
+      // Same rationale as the feed cache — trending shifts as interests/boosts land.
+      keepUnusedDataFor: 30,
+      providesTags: result =>
+        result
+          ? [
+              { type: 'Listing' as const, id: 'TRENDING' },
+              ...result.listings.map(l => ({
+                type: 'Listing' as const,
+                id: l._id,
+              })),
+            ]
+          : [{ type: 'Listing' as const, id: 'TRENDING' }],
+    }),
+
+    getListing: builder.query<GetListingResponseData, string>({
+      query: id => ({ url: `/marketplace/listings/${id}`, method: 'GET' }),
+      transformResponse: (response: ApiResponse<GetListingResponseData>) =>
+        response.data,
+      providesTags: (_result, _error, id) => [{ type: 'Listing' as const, id }],
+    }),
+
+    expressInterest: builder.mutation<
+      ExpressInterestResponseData,
+      ExpressInterestRequest
+    >({
+      query: ({ listingId, message }) => ({
+        url: `/marketplace/listings/${listingId}/interest`,
+        method: 'POST',
+        body: { message },
+      }),
+      transformResponse: (response: ApiResponse<ExpressInterestResponseData>) =>
+        response.data,
+      // Non-idempotent on the network layer (though the backend itself upserts
+      // on listingId+buyerId) — avoid a silent double-fire on retry.
+      extraOptions: { maxRetries: 0 },
+      invalidatesTags: (_result, _error, { listingId }) => [
+        { type: 'Listing' as const, id: listingId },
+      ],
     }),
 
     getMyListings: builder.query<GetMyListingsResponseData, void>({
@@ -91,6 +147,9 @@ export const productsApi = baseApi.injectEndpoints({
 
 export const {
   useGetFeedQuery,
+  useGetTrendingListingsQuery,
+  useGetListingQuery,
+  useExpressInterestMutation,
   useGetMyListingsQuery,
   useCreateListingMutation,
   useDeleteListingMutation,

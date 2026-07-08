@@ -7,6 +7,7 @@ interface ShowOptions {
   title: string;
   message?: string;
   duration?: number;
+  onPress?: () => void;
 }
 
 const show = (type: ToastType, options: ShowOptions) => {
@@ -17,6 +18,7 @@ const show = (type: ToastType, options: ShowOptions) => {
     position: 'top',
     visibilityTime: options.duration ?? TOAST_DURATION_MS,
     topOffset: 60,
+    onPress: options.onPress,
   });
 };
 

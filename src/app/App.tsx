@@ -7,6 +7,7 @@ import Toast from 'react-native-toast-message';
 
 import { store } from './store';
 import { RootNavigator } from '@/navigation/RootNavigator';
+import { navigationRef } from '@/navigation/navigationRef';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { OfflineBanner } from '@/components/common/OfflineBanner';
 import { toastConfig } from '@/components/common/ToastConfig';
@@ -17,7 +18,7 @@ export const App: React.FC = () => {
       <SafeAreaProvider>
         <Provider store={store}>
           <ErrorBoundary>
-            <NavigationContainer>
+            <NavigationContainer ref={navigationRef}>
               <OfflineBanner />
               <RootNavigator />
             </NavigationContainer>
