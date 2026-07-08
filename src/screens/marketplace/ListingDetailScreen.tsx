@@ -188,6 +188,22 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   const isUnavailable = listing.status === 'Sold';
 
+  const [sellerLng, sellerLat] = listing.seller?.location?.coordinates ?? [];
+  const sellerDistanceKm =
+    deviceLocation.latitude != null &&
+    deviceLocation.longitude != null &&
+    sellerLat != null &&
+    sellerLng != null
+      ? Math.round(
+          getDistanceKm(
+            deviceLocation.latitude,
+            deviceLocation.longitude,
+            sellerLat,
+            sellerLng,
+          ),
+        )
+      : null;
+
   const handleBuyTap = () => {
     if (isUnavailable || hasExpressedInterest) return;
     setBuyConfirmOpen(true);
@@ -496,6 +512,11 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                         'en-IN',
                         { month: 'short', year: 'numeric' },
                       )}
+                    </Text>
+                  ) : null}
+                  {sellerDistanceKm != null ? (
+                    <Text style={styles.sellerMeta}>
+                      {sellerDistanceKm} km away
                     </Text>
                   ) : null}
                 </View>

@@ -45,6 +45,7 @@ export interface ListingSeller {
   phone?: string; // only present if the seller's phone is verified
   isVerified: boolean;
   memberSince?: string;
+  location?: GeoPoint;
 }
 
 export interface GetListingResponseData {

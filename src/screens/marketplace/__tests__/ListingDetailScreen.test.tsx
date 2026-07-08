@@ -8,6 +8,8 @@ import {
 } from '@/test-utils/renderWithProviders';
 import { ListingDetailScreen } from '@/screens/marketplace/ListingDetailScreen';
 import { setCredentials } from '@/store/authSlice';
+import { setLocation } from '@/store/locationSlice';
+import { getDistanceKm } from '@/utils/geo';
 
 const originalFetch = globalThis.fetch;
 
@@ -162,5 +164,71 @@ describe('ListingDetailScreen', () => {
       expect(getByText('iPhone 13 128GB mint')).toBeTruthy();
     });
     expect(queryByTestId('listing-detail-menu-button')).toBeNull();
+  });
+
+  it('shows the seller distance when both the seller and the buyer have a location', async () => {
+    const sellerCoords: [number, number] = [77.209, 28.6139]; // Delhi [lng, lat]
+    const buyerLat = 19.076; // Mumbai
+    const buyerLng = 72.8777;
+    const listing = makeListing({
+      status: 'Live',
+      sellerId: 'someone-else',
+      seller: {
+        id: 'someone-else',
+        name: 'Test Seller',
+        isVerified: true,
+        location: { type: 'Point', coordinates: sellerCoords },
+      },
+    });
+
+    const store = withSellerSession();
+    store.dispatch(
+      setLocation({
+        latitude: buyerLat,
+        longitude: buyerLng,
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        address: null,
+        pincode: null,
+      }),
+    );
+
+    const { getByText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store },
+    );
+
+    const expectedKm = Math.round(
+      getDistanceKm(buyerLat, buyerLng, sellerCoords[1], sellerCoords[0]),
+    );
+
+    await waitFor(() => {
+      expect(getByText(`${expectedKm} km away`)).toBeTruthy();
+    });
+  });
+
+  it('does not show a seller distance when the buyer has no device location', async () => {
+    const listing = makeListing({
+      status: 'Live',
+      sellerId: 'someone-else',
+      seller: {
+        id: 'someone-else',
+        name: 'Test Seller',
+        isVerified: true,
+        location: { type: 'Point', coordinates: [77.209, 28.6139] },
+      },
+    });
+
+    const { getByText, queryByText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByText('iPhone 13 128GB mint')).toBeTruthy();
+    });
+    expect(queryByText(/km away/)).toBeNull();
   });
 });
