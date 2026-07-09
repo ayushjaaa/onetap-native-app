@@ -16,6 +16,7 @@ import type {
   SearchAutocompleteResponseData,
   SearchListingsParams,
   SearchListingsResponseData,
+  CreateShareLinkResponseData,
 } from '@/types';
 
 export const productsApi = baseApi.injectEndpoints({
@@ -136,14 +137,6 @@ export const productsApi = baseApi.injectEndpoints({
       ],
     }),
 
-    getListingById: builder.query<Listing, string>({
-      query: id => ({ url: `/marketplace/listings/${id}`, method: 'GET' }),
-      transformResponse: (response: ApiResponse<{ listing: Listing }>) =>
-        response.data.listing,
-      keepUnusedDataFor: 30,
-      providesTags: (_result, _error, id) => [{ type: 'Listing' as const, id }],
-    }),
-
     deleteListing: builder.mutation<DeleteListingResponseData, string>({
       query: id => ({
         url: `/marketplace/listings/${id}`,
@@ -156,6 +149,15 @@ export const productsApi = baseApi.injectEndpoints({
         { type: 'Listing' as const, id: 'MINE' },
         { type: 'Listing' as const, id: 'FEED' },
       ],
+    }),
+
+    createShareLink: builder.mutation<CreateShareLinkResponseData, string>({
+      query: id => ({
+        url: `/marketplace/listings/${id}/share`,
+        method: 'POST',
+      }),
+      transformResponse: (response: ApiResponse<CreateShareLinkResponseData>) =>
+        response.data,
     }),
 
     searchListings: builder.query<
@@ -194,11 +196,28 @@ export const {
   useGetListingQuery,
   useExpressInterestMutation,
   useGetMyListingsQuery,
-  useGetListingByIdQuery,
   useCreateListingMutation,
   useDeleteListingMutation,
+  useCreateShareLinkMutation,
   useSearchListingsQuery,
   useAutocompleteSearchQuery,
 } = productsApi;
+
+// getListing and getListingById used to be two separate endpoint definitions
+// that both hit GET /marketplace/listings/:id — same network call, same cache
+// key space, just two different response shapes ({ listing } vs listing
+// directly) and two independent RTK Query cache entries for the same data.
+// Consolidated onto the single real endpoint (useGetListingQuery); this wrapper
+// keeps the old useGetListingByIdQuery name and its flat-Listing return shape
+// working for existing callers (BuyerPurchaseHistoryScreen, SellerSalesHistoryScreen)
+// without touching them, while sharing one cache entry instead of double-fetching.
+export function useGetListingByIdQuery(
+  ...args: Parameters<typeof useGetListingQuery>
+): Omit<ReturnType<typeof useGetListingQuery>, 'data'> & {
+  data: Listing | undefined;
+} {
+  const result = useGetListingQuery(...args);
+  return { ...result, data: result.data?.listing };
+}
 
 export type { Listing };

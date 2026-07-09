@@ -159,3 +159,23 @@ export interface SearchListingsResponseData {
 export interface SearchAutocompleteResponseData {
   suggestions: string[];
 }
+
+export interface AddFavoriteResponseData {
+  listingId: string;
+}
+
+export interface RemoveFavoriteResponseData {
+  listingId: string;
+}
+
+export interface GetMyFavoritesResponseData {
+  favorites: Listing[];
+  total: number;
+  limit: number;
+  skip: number;
+}
+
+export interface CreateShareLinkResponseData {
+  code: string;
+  url: string;
+}

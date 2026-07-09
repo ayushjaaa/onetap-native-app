@@ -9,6 +9,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -48,8 +49,14 @@ import {
   useExpressInterestMutation,
   useGetListingQuery,
   useDeleteListingMutation,
+  useCreateShareLinkMutation,
 } from '@/api/productsApi';
 import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
+import {
+  useGetMyFavoritesQuery,
+  useAddFavoriteMutation,
+  useRemoveFavoriteMutation,
+} from '@/api/favoritesApi';
 import { useSelectBuyerMutation } from '@/api/transactionsApi';
 import { getDistanceKm } from '@/utils/geo';
 import { buildMediaUrl } from '@/utils/media';
@@ -130,7 +137,6 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   }, [listingData]);
 
   const [activeImage, setActiveImage] = useState(0);
-  const [isFavorite, setIsFavorite] = useState(false);
   const [hasExpressedInterest, setHasExpressedInterest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [rejectionOpen, setRejectionOpen] = useState(false);
@@ -147,6 +153,19 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const { data: receivedInterestsData } = useGetReceivedInterestsQuery(
     isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
   );
+
+  // Favorites are buyer-only (the heart icon never renders in seller mode —
+  // see the top-bar Pressable below), so skip the fetch entirely otherwise.
+  const { data: favoritesData } = useGetMyFavoritesQuery(
+    isSellerMode ? skipToken : undefined,
+  );
+  const isFavorite =
+    favoritesData?.favorites?.some(f => f._id === listing?._id) ?? false;
+  const [addFavorite, { isLoading: addingFavorite }] = useAddFavoriteMutation();
+  const [removeFavorite, { isLoading: removingFavorite }] =
+    useRemoveFavoriteMutation();
+  const togglingFavorite = addingFavorite || removingFavorite;
+  const [createShareLink] = useCreateShareLinkMutation();
   const interestedBuyers: InterestedBuyer[] = (
     receivedInterestsData?.interests ?? []
   )
@@ -254,6 +273,40 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       counterpartyId: listing.seller?.id,
       counterpartyName: listing.seller?.name,
     });
+  };
+
+  const handleToggleFavorite = async () => {
+    if (togglingFavorite) return;
+    try {
+      if (isFavorite) {
+        await removeFavorite(listing._id).unwrap();
+      } else {
+        await addFavorite(listing._id).unwrap();
+      }
+    } catch (err: any) {
+      // 409 (already favorited) / 404 (already removed) both mean the
+      // desired end state is already true — the cache invalidation on the
+      // next getMyFavorites fetch will reconcile the icon, nothing to show.
+      if (err?.status === 409 || err?.status === 404) return;
+      const mapped = mapApiError(err as never);
+      toast.error({
+        title: "Couldn't update favorites",
+        message: mapped.message,
+      });
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      const { url } = await createShareLink(listing._id).unwrap();
+      await Share.share({
+        message: `${listing.title} on OneTap365: ${url}`,
+        url, // iOS surfaces this separately from the message; Android ignores it.
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({ title: "Couldn't share listing", message: mapped.message });
+    }
   };
 
   const handleRemove = () => {
@@ -385,9 +438,14 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               ) : (
                 <>
                   <Pressable
-                    onPress={() => setIsFavorite(prev => !prev)}
+                    onPress={handleToggleFavorite}
+                    disabled={togglingFavorite}
                     hitSlop={spacing.md}
                     style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                    }
                   >
                     <Heart
                       size={layout.iconSize.md}
@@ -395,7 +453,13 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                       fill={isFavorite ? colors.error : 'transparent'}
                     />
                   </Pressable>
-                  <Pressable hitSlop={spacing.md} style={styles.iconBtn}>
+                  <Pressable
+                    onPress={handleShare}
+                    hitSlop={spacing.md}
+                    style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share this listing"
+                  >
                     <Share2 size={layout.iconSize.md} color={colors.white} />
                   </Pressable>
                 </>

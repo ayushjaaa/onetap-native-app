@@ -26,6 +26,27 @@ function mockFetchOnce(body: unknown) {
   }) as unknown as typeof fetch;
 }
 
+// Unlike mockFetchOnce (one canned body for every URL), this dispatches by
+// URL substring — needed for tests where more than one endpoint fires
+// (e.g. getMyFavorites alongside a favorite/unfavorite mutation).
+function mockFetchByUrl(handlers: Record<string, unknown>) {
+  globalThis.fetch = jest.fn().mockImplementation((input: Request | string) => {
+    const url = typeof input === 'string' ? input : input.url;
+    const match = Object.keys(handlers).find(pattern => url.includes(pattern));
+    const body = match ? handlers[match] : { success: true, data: {} };
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+      clone() {
+        return this;
+      },
+    });
+  }) as unknown as typeof fetch;
+}
+
 const makeListing = (overrides: Record<string, unknown> = {}) => ({
   _id: 'l1',
   sellerId: 'user-1',
@@ -230,5 +251,124 @@ describe('ListingDetailScreen', () => {
       expect(getByText('iPhone 13 128GB mint')).toBeTruthy();
     });
     expect(queryByText(/km away/)).toBeNull();
+  });
+
+  it('shows the favorite icon as filled when the listing is already in favorites', async () => {
+    const listing = makeListing({ status: 'Live', sellerId: 'someone-else' });
+    mockFetchByUrl({
+      '/me/favorites': {
+        success: true,
+        data: { favorites: [listing], total: 1, limit: 20, skip: 0 },
+      },
+    });
+
+    const { getByLabelText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByLabelText('Remove from favorites')).toBeTruthy();
+    });
+  });
+
+  it('calls DELETE .../favorite when un-favoriting an already-favorited listing', async () => {
+    const listing = makeListing({ status: 'Live', sellerId: 'someone-else' });
+    mockFetchByUrl({
+      '/me/favorites': {
+        success: true,
+        data: { favorites: [listing], total: 1, limit: 20, skip: 0 },
+      },
+      '/favorite': { success: true, data: { listingId: 'l1' } },
+    });
+
+    const { getByLabelText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByLabelText('Remove from favorites')).toBeTruthy();
+    });
+    fireEvent.press(getByLabelText('Remove from favorites'));
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as jest.Mock).mock.calls;
+      const favoriteCall = calls.find((c: any[]) => {
+        const url = typeof c[0] === 'string' ? c[0] : c[0]?.url;
+        return url?.includes('/listings/l1/favorite');
+      });
+      expect(favoriteCall).toBeDefined();
+      const req = favoriteCall![0] as Request;
+      expect(req.method).toBe('DELETE');
+      expect(req.url).toContain('/marketplace/listings/l1/favorite');
+    });
+  });
+
+  it('calls POST .../favorite when favoriting a listing not yet in favorites', async () => {
+    const listing = makeListing({ status: 'Live', sellerId: 'someone-else' });
+    mockFetchByUrl({
+      '/me/favorites': {
+        success: true,
+        data: { favorites: [], total: 0, limit: 20, skip: 0 },
+      },
+      '/favorite': { success: true, data: { listingId: 'l1' } },
+    });
+
+    const { getByLabelText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByLabelText('Add to favorites')).toBeTruthy();
+    });
+    fireEvent.press(getByLabelText('Add to favorites'));
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as jest.Mock).mock.calls;
+      const favoriteCall = calls.find((c: any[]) => {
+        const url = typeof c[0] === 'string' ? c[0] : c[0]?.url;
+        return url?.includes('/listings/l1/favorite');
+      });
+      expect(favoriteCall).toBeDefined();
+      const req = favoriteCall![0] as Request;
+      expect(req.method).toBe('POST');
+    });
+  });
+
+  it('generates a share link and invokes the native Share sheet', async () => {
+    const shareSpy = jest
+      .spyOn(require('react-native').Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never);
+    const listing = makeListing({ status: 'Live', sellerId: 'someone-else' });
+    mockFetchByUrl({
+      '/share': {
+        success: true,
+        data: { code: 'abc1234', url: 'onetap://listing/l1' },
+      },
+    });
+
+    const { getByLabelText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByLabelText('Share this listing')).toBeTruthy();
+    });
+    fireEvent.press(getByLabelText('Share this listing'));
+
+    await waitFor(() => {
+      expect(shareSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ url: 'onetap://listing/l1' }),
+      );
+    });
+
+    shareSpy.mockRestore();
   });
 });
