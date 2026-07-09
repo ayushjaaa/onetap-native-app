@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -26,6 +27,7 @@ import { useAppSelector } from '@/hooks/useAppSelector';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { useToast } from '@/hooks/useToast';
 import { useLocation } from '@/hooks/useLocation';
+import { useImageUpload } from '@/hooks/useImageUpload';
 import { setLocation as setLocationAction } from '@/store/locationSlice';
 import {
   type CategoryPickResult,
@@ -35,6 +37,7 @@ import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
 import { useCreateListingMutation } from '@/api/productsApi';
 import { useGetWalletQuery } from '@/api/walletApi';
 import { mapApiError } from '@/utils/errorMapper';
+import { buildMediaUrl } from '@/utils/media';
 import type { ListingCondition } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -82,23 +85,9 @@ const containsContact = (text: string): boolean =>
   PHONE_RE.test(text) || UPI_RE.test(text);
 
 interface PhotoSlot {
-  /** Pseudo-URI for display. Once real picker lands, this becomes a file URI. */
-  uri: string;
-  /** Pseudo size in bytes (for the >5MB toast in stub mode). */
-  sizeBytes: number;
+  /** Server-relative media path returned by POST /marketplace/listings/upload, e.g. '/media/listings/...'. */
+  url: string;
 }
-
-// Solid colour swatches used as stand-ins for real images in v1.
-const STUB_COLOURS = [
-  '#2BB32A',
-  '#3B82F6',
-  '#F59E0B',
-  '#EF4444',
-  '#8B5CF6',
-  '#EC4899',
-  '#10B981',
-  '#F97316',
-];
 
 export const ListAProductScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
@@ -142,6 +131,7 @@ export const ListAProductScreen: React.FC = () => {
   const { data: walletData } = useGetWalletQuery();
   const slotsAvailable = walletData?.wallet.postCredits ?? 0;
   const [createListing, { isLoading: submitting }] = useCreateListingMutation();
+  const { pick: pickListingPhoto, isUploading } = useImageUpload('listing');
 
   const [photos, setPhotos] = useState<PhotoSlot[]>([]);
   const [title, setTitle] = useState('');
@@ -176,7 +166,7 @@ export const ListAProductScreen: React.FC = () => {
   }, [user]);
 
   // ---- Handlers
-  const handleAddPhoto = () => {
+  const handleAddPhoto = async () => {
     if (photos.length >= PHOTO_MAX) {
       toast.info({
         title: 'Photo limit reached',
@@ -184,22 +174,9 @@ export const ListAProductScreen: React.FC = () => {
       });
       return;
     }
-    // STUB: when the real image picker integrates we'll show
-    // Camera / Gallery / Cancel here. For v1 we drop in a coloured
-    // placeholder so the photo grid is fully testable.
-    const colour = STUB_COLOURS[photos.length % STUB_COLOURS.length];
-    setPhotos(prev => [
-      ...prev,
-      {
-        uri: `stub://${colour}`,
-        sizeBytes: 200_000,
-      },
-    ]);
-    toast.info({
-      title: 'Stub photo added',
-      message:
-        'Real camera + gallery picker ships when the image-picker library lands.',
-    });
+    const url = await pickListingPhoto();
+    if (!url) return;
+    setPhotos(prev => [...prev, { url }]);
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -251,9 +228,7 @@ export const ListAProductScreen: React.FC = () => {
         condition: CONDITION_TO_BACKEND[condition],
         lat: location.latitude,
         lng: location.longitude,
-        // Photos are dev-only colour-swatch stubs until DN3 (image picker)
-        // ships — a "stub://#hex" string is not a real Cloudinary id, so
-        // sending it would corrupt real listing data. Omit until Phase 3.
+        photos: photos.map(p => p.url),
       }).unwrap();
 
       toast.success({
@@ -314,11 +289,9 @@ export const ListAProductScreen: React.FC = () => {
               if (photo) {
                 return (
                   <View key={i} style={styles.photoTile}>
-                    <View
-                      style={[
-                        styles.photoImg,
-                        { backgroundColor: photo.uri.replace('stub://', '') },
-                      ]}
+                    <Image
+                      source={{ uri: buildMediaUrl(photo.url) }}
+                      style={styles.photoImg}
                     />
                     {i === 0 ? (
                       <View style={styles.coverBadge}>
@@ -342,13 +315,21 @@ export const ListAProductScreen: React.FC = () => {
                     key={i}
                     testID="add-photo-tile"
                     onPress={handleAddPhoto}
+                    disabled={isUploading}
                     style={({ pressed }) => [
                       styles.photoTile,
                       styles.photoTileEmpty,
                       pressed && styles.photoTileEmptyPressed,
                     ]}
                   >
-                    <Camera size={layout.iconSize.lg} color={colors.primary} />
+                    {isUploading ? (
+                      <ActivityIndicator color={colors.primary} />
+                    ) : (
+                      <Camera
+                        size={layout.iconSize.lg}
+                        color={colors.primary}
+                      />
+                    )}
                   </Pressable>
                 );
               }

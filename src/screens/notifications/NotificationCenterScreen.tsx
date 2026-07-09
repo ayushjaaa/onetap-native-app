@@ -72,11 +72,12 @@ export const NotificationCenterScreen: React.FC = () => {
   const [markAllRead] = useMarkAllNotificationsReadMutation();
   const [markRead] = useMarkNotificationReadMutation();
 
-  const notifications = data?.notifications ?? EMPTY_NOTIFICATIONS;
-  const unreadCount = useMemo(
-    () => notifications.filter(n => n.status !== 'read').length,
-    [notifications],
+  const allNotifications = data?.notifications ?? EMPTY_NOTIFICATIONS;
+  const notifications = useMemo(
+    () => allNotifications.filter(n => n.status !== 'read'),
+    [allNotifications],
   );
+  const unreadCount = notifications.length;
 
   const handleMarkAllRead = () => {
     void markAllRead();
@@ -153,16 +154,11 @@ interface RowProps {
 const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
   const Icon = TYPE_ICON[n.type] ?? Bell;
   const tint = TYPE_COLOUR[n.type] ?? colors.textMuted;
-  const isRead = n.status === 'read';
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        isRead && styles.rowRead,
-        pressed && styles.rowPressed,
-      ]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
       <View
         style={[
@@ -177,12 +173,12 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
       <View style={styles.rowBody}>
         <View style={styles.rowTopLine}>
           <Text
-            style={[styles.rowTitle, !isRead && styles.rowTitleUnread]}
+            style={[styles.rowTitle, styles.rowTitleUnread]}
             numberOfLines={2}
           >
             {n.title}
           </Text>
-          <Text style={[styles.rowTime, !isRead && styles.rowTimeUnread]}>
+          <Text style={[styles.rowTime, styles.rowTimeUnread]}>
             {formatRelativeShort(n.createdAt)}
           </Text>
         </View>
@@ -193,7 +189,7 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
         ) : null}
       </View>
 
-      {!isRead ? <View style={styles.unreadDot} /> : null}
+      <View style={styles.unreadDot} />
     </Pressable>
   );
 };
@@ -302,9 +298,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.primaryAlpha15,
-  },
-  rowRead: {
-    borderColor: colors.borderSubtle,
   },
   rowPressed: {
     opacity: 0.92,

@@ -72,6 +72,7 @@ interface InterestedBuyer {
   id: string;
   name: string;
   initial: string;
+  phone?: string;
   locationLabel: string;
   distanceKm: number | null;
   interestedAtIso: string;
@@ -95,6 +96,7 @@ const toInterestedBuyer = (
     id: interest._id,
     name,
     initial: name.charAt(0).toUpperCase(),
+    phone: interest.buyerPhone,
     locationLabel: buyerLat != null ? 'Nearby buyer' : 'Location not shared',
     distanceKm,
     interestedAtIso: interest.createdAt,
@@ -146,6 +148,10 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   const { data: receivedInterestsData } = useGetReceivedInterestsQuery(
     isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
+  );
+  console.log(
+    '[ListingDetailScreen] GET /marketplace/interests/received raw response:',
+    JSON.stringify(receivedInterestsData, null, 2),
   );
   const interestedBuyers: InterestedBuyer[] = (
     receivedInterestsData?.interests ?? []
@@ -785,6 +791,14 @@ const InterestedBuyersSection: React.FC<InterestedBuyersSectionProps> = ({
                 {buyer.locationLabel} · {buyer.distanceKm} km
               </Text>
               <View style={styles.buyerBtns}>
+                {buyer.phone ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${buyer.phone}`)}
+                    style={styles.buyerChatBtn}
+                  >
+                    <Text style={styles.buyerChatText}>Call</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => onChat(buyer)}
                   style={styles.buyerChatBtn}
