@@ -21,6 +21,7 @@ import { AadhaarNumberScreen } from '@/screens/seller/AadhaarNumberScreen';
 import { AadhaarOtpScreen } from '@/screens/seller/AadhaarOtpScreen';
 import { SellerTypeScreen } from '@/screens/seller/SellerTypeScreen';
 import { IndividualOnboardingScreen } from '@/screens/seller/IndividualOnboardingScreen';
+import { SellerPendingScreen } from '@/screens/seller/SellerPendingScreen';
 import { PackageSelectionScreen } from '@/screens/seller/PackageSelectionScreen';
 import { PaymentResultScreen } from '@/screens/seller/PaymentResultScreen';
 import { ProductWalletScreen } from '@/screens/seller/ProductWalletScreen';
@@ -127,6 +128,7 @@ export const MainNavigator: React.FC = () => {
         name="IndividualOnboarding"
         component={IndividualOnboardingScreen}
       />
+      <Stack.Screen name="SellerPending" component={SellerPendingScreen} />
       <Stack.Screen
         name="PackageSelection"
         component={PackageSelectionScreen}

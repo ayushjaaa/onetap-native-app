@@ -1,11 +1,5 @@
 import React, { useEffect } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,14 +13,8 @@ import {
   UploadCloud,
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { AADHAAR_KYC_ENABLED } from '@/config/featureFlags';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'BecomeSellerIntro'>;
@@ -42,8 +30,8 @@ const STEPS: StepCardConfig[] = [
   {
     number: '1',
     Icon: BadgeCheck,
-    title: 'Verify Aadhaar',
-    subtitle: '60 seconds',
+    title: AADHAAR_KYC_ENABLED ? 'Verify Aadhaar' : 'Apply as a seller',
+    subtitle: AADHAAR_KYC_ENABLED ? '60 seconds' : '2 minutes',
   },
   {
     number: '2',
@@ -63,8 +51,12 @@ export const BecomeSellerIntroScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const user = useAppSelector(state => state.auth.user);
 
-  const aadhaarDone = Boolean(user?.aadhaarVerified);
-  const sellerActive = Boolean(user?.isSellerApproved);
+  // Step-1 "done" signal: Aadhaar when that flow is enabled, else whether an
+  // application has already been started (sellerType picked).
+  const step1Done = AADHAAR_KYC_ENABLED
+    ? Boolean(user?.aadhaarVerified)
+    : Boolean(user?.sellerType);
+  const sellerActive = user?.kycStatus === 'verified';
 
   useEffect(() => {
     if (sellerActive) {
@@ -73,17 +65,10 @@ export const BecomeSellerIntroScreen: React.FC = () => {
     }
   }, [sellerActive, navigation]);
 
-  const ctaLabel = aadhaarDone ? 'Continue setup' : 'Get started';
+  const ctaLabel = step1Done ? 'Continue setup' : 'Get started';
 
   const handleStart = () => {
-    if (aadhaarDone) {
-      // TODO: when S6 (PackageSelection) ships, route to it here.
-      // For now, treat resume the same as a fresh start (re-enter Aadhaar
-      // flow is harmless because backend dedup will short-circuit it).
-      navigation.navigate('AadhaarNumber');
-      return;
-    }
-    navigation.navigate('AadhaarNumber');
+    navigation.navigate(AADHAAR_KYC_ENABLED ? 'AadhaarNumber' : 'SellerType');
   };
 
   return (
@@ -111,7 +96,7 @@ export const BecomeSellerIntroScreen: React.FC = () => {
 
         <View style={styles.stepsWrap}>
           {STEPS.map((step, index) => {
-            const stepDone = index === 0 && aadhaarDone;
+            const stepDone = index === 0 && step1Done;
             return (
               <View
                 key={step.number}
@@ -150,7 +135,9 @@ export const BecomeSellerIntroScreen: React.FC = () => {
         <View style={styles.reassuranceRow}>
           <View style={styles.reassuranceItem}>
             <ShieldCheck size={layout.iconSize.sm} color={colors.success} />
-            <Text style={styles.reassuranceText}>Aadhaar secured</Text>
+            <Text style={styles.reassuranceText}>
+              {AADHAAR_KYC_ENABLED ? 'Aadhaar secured' : 'Reviewed by our team'}
+            </Text>
           </View>
           <View style={styles.reassuranceDot} />
           <View style={styles.reassuranceItem}>

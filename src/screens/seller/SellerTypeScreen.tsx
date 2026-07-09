@@ -18,14 +18,8 @@ import {
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useToast } from '@/hooks/useToast';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { useSetSellerTypeMutation } from '@/api/authApi';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'SellerType'>;
@@ -66,14 +60,15 @@ export const SellerTypeScreen: React.FC = () => {
   const user = useAppSelector(state => state.auth.user);
 
   const [selected, setSelected] = useState<SellerType | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [setSellerType, { isLoading: isSubmitting }] =
+    useSetSellerTypeMutation();
 
   // Defensive: already-active seller shouldn't be picking a type again.
   useEffect(() => {
-    if (user?.isSellerApproved) {
+    if (user?.kycStatus === 'verified') {
       navigation.popToTop();
     }
-  }, [user?.isSellerApproved, navigation]);
+  }, [user?.kycStatus, navigation]);
 
   const handleWholesaleTap = () => {
     toast.info({
@@ -84,11 +79,9 @@ export const SellerTypeScreen: React.FC = () => {
 
   const handleContinue = async () => {
     if (selected !== 'individual' || isSubmitting) return;
-    setIsSubmitting(true);
 
     try {
-      // TODO: real PATCH /me { sellerType: 'individual' } once backend ships.
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
+      await setSellerType({ sellerType: 'individual' }).unwrap();
 
       // `replace` so the user can't back-button into the type-selection
       // step after committing to Individual.
@@ -98,8 +91,6 @@ export const SellerTypeScreen: React.FC = () => {
         title: "Couldn't save your selection",
         message: 'Network issue — try again in a moment.',
       });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -138,7 +129,11 @@ export const SellerTypeScreen: React.FC = () => {
         <SellerTypeCard
           config={WHOLESALE}
           disabled={!WHOLESALE_ENABLED}
-          onPress={WHOLESALE_ENABLED ? () => setSelected('wholesale') : handleWholesaleTap}
+          onPress={
+            WHOLESALE_ENABLED
+              ? () => setSelected('wholesale')
+              : handleWholesaleTap
+          }
         />
       </ScrollView>
 
@@ -191,10 +186,7 @@ const SellerTypeCard: React.FC<SellerTypeCardProps> = ({
     >
       <View style={styles.cardHeader}>
         <View
-          style={[
-            styles.cardIconWrap,
-            disabled && styles.cardIconWrapDisabled,
-          ]}
+          style={[styles.cardIconWrap, disabled && styles.cardIconWrapDisabled]}
         >
           <config.Icon
             size={layout.iconSize.base}
@@ -227,14 +219,9 @@ const SellerTypeCard: React.FC<SellerTypeCardProps> = ({
         {config.bullets.map(text => (
           <View key={text} style={styles.bulletRow}>
             <View
-              style={[
-                styles.bulletDot,
-                disabled && styles.bulletDotDisabled,
-              ]}
+              style={[styles.bulletDot, disabled && styles.bulletDotDisabled]}
             />
-            <Text
-              style={[styles.bulletText, disabled && styles.textDisabled]}
-            >
+            <Text style={[styles.bulletText, disabled && styles.textDisabled]}>
               {text}
             </Text>
           </View>

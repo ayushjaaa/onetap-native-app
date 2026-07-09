@@ -32,6 +32,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useToast } from '@/hooks/useToast';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { logout, setUser } from '@/store/authSlice';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { secureStorage } from '@/services/secureStorage';
 import { googleAuth } from '@/services/googleAuth';
 import { buildMediaUrl } from '@/utils/media';
@@ -135,19 +136,20 @@ export const ProfileScreen: React.FC = () => {
   };
 
   // Seller-row visibility:
-  //   - active seller         → show wallet + sales rows
-  //   - aadhaar-verified only → show wallet + sales rows AND a resume row
-  //                             that drops them into Package Selection so
-  //                             they can finish setup
-  //   - neither               → don't render the section at all
-  const showSellerSection =
-    Boolean(user?.isSellerApproved) || Boolean(user?.aadhaarVerified);
-  const showFinishSellerSetup =
-    Boolean(user?.aadhaarVerified) && !user?.isSellerApproved;
+  //   - active seller (kycStatus verified)    → show wallet + sales rows
+  //   - application started but not approved  → show wallet + sales rows AND
+  //                                              a resume row (finish setup,
+  //                                              or check pending-review status)
+  //   - neither                               → don't render the section at all
+  const isSellerVerified = user?.kycStatus === 'verified';
+  const showSellerSection = isSellerVerified || Boolean(user?.sellerType);
+  const showFinishSellerSetup = Boolean(user?.sellerType) && !isSellerVerified;
+  const sellerSetupSubmitted = Boolean(user?.sellerDisplayName);
 
   const handleProductWallet = () => navigation.navigate('ProductWallet');
   const handleSalesHistory = () => navigation.navigate('SalesHistory');
-  const handleFinishSellerSetup = () => navigation.navigate('PackageSelection');
+  const handleFinishSellerSetup = () =>
+    navigation.navigate(resolvePostAdDestination(user) as never);
   const handlePurchaseHistory = () => navigation.navigate('PurchaseHistory');
   const handleMessages = () => navigation.navigate('ChatList');
 
@@ -222,8 +224,16 @@ export const ProfileScreen: React.FC = () => {
                   <View style={styles.divider} />
                   <Row
                     Icon={Zap}
-                    label="Finish seller setup"
-                    value="Pick a package to start posting"
+                    label={
+                      sellerSetupSubmitted
+                        ? 'Application under review'
+                        : 'Finish seller setup'
+                    }
+                    value={
+                      sellerSetupSubmitted
+                        ? "We'll notify you once approved"
+                        : 'Complete your seller profile'
+                    }
                     onPress={handleFinishSellerSetup}
                   />
                 </>

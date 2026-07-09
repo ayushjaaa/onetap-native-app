@@ -73,6 +73,7 @@ export type MainStackParamList = {
   AadhaarOtp: { aadhaarLast4: string };
   SellerType: undefined;
   IndividualOnboarding: undefined;
+  SellerPending: undefined;
   PackageSelection: undefined;
   PaymentResult: { packageId: string };
   ProductWallet: undefined;

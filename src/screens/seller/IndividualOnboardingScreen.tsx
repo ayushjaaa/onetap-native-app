@@ -25,6 +25,7 @@ import {
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useToast } from '@/hooks/useToast';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { useSubmitIndividualSellerProfileMutation } from '@/api/authApi';
 import { buildMediaUrl } from '@/utils/media';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -64,7 +65,8 @@ export const IndividualOnboardingScreen: React.FC = () => {
   const { pick: pickPhoto, isUploading: isUploadingPhoto } =
     useImageUpload('avatar');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitProfile, { isLoading: isSubmitting }] =
+    useSubmitIndividualSellerProfileMutation();
   const [didSucceed, setDidSucceed] = useState(false);
 
   const trimmedName = name.trim();
@@ -91,18 +93,19 @@ export const IndividualOnboardingScreen: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
-    setIsSubmitting(true);
     try {
-      // TODO: real POST /seller/individual { displayName, bio, photoUrl, categories }
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 700));
+      await submitProfile({
+        displayName: trimmedName,
+        bio: bio.trim() || undefined,
+        photoUrl: photoUri ?? undefined,
+        categories: categories.length > 0 ? categories : undefined,
+      }).unwrap();
       setDidSucceed(true);
     } catch {
       toast.error({
-        title: "Couldn't activate seller account",
+        title: "Couldn't submit your application",
         message: 'Network issue — try again in a moment.',
       });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -305,11 +308,11 @@ export const IndividualOnboardingScreen: React.FC = () => {
             <View style={styles.successCircle}>
               <CheckCircle2 size={72} color={colors.success} />
             </View>
-            <Text style={styles.successTitle}>
-              You're a verified seller! 🎉
-            </Text>
+            <Text style={styles.successTitle}>Application submitted! 🎉</Text>
             <Text style={styles.successBody}>
-              Ab apna pehla product post karne ke liye ek package pick karein.
+              Hamari team aapki application review karegi. Tab tak, apna pehla
+              package pick kar lijiye — products list karna admin approval ke
+              baad shuru ho sakta hai.
             </Text>
           </View>
 

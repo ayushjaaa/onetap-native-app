@@ -14,6 +14,10 @@ import type {
   VerifyOtpResponse,
   GoogleSignInRequest,
   GoogleSignInResponse,
+  SetSellerTypeRequest,
+  SetSellerTypeResponse,
+  SubmitIndividualSellerProfileRequest,
+  SubmitIndividualSellerProfileResponse,
 } from '@/types';
 
 export const authApi = baseApi.injectEndpoints({
@@ -83,6 +87,30 @@ export const authApi = baseApi.injectEndpoints({
         body,
       }),
     }),
+
+    setSellerType: builder.mutation<
+      SetSellerTypeResponse,
+      SetSellerTypeRequest
+    >({
+      query: body => ({
+        url: '/auth/me/seller',
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['User'],
+    }),
+
+    submitIndividualSellerProfile: builder.mutation<
+      SubmitIndividualSellerProfileResponse,
+      SubmitIndividualSellerProfileRequest
+    >({
+      query: body => ({
+        url: '/auth/seller/individual',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['User'],
+    }),
   }),
   overrideExisting: false,
 });
@@ -97,4 +125,6 @@ export const {
   useSendOtpMutation,
   useResendOtpMutation,
   useVerifyOtpMutation,
+  useSetSellerTypeMutation,
+  useSubmitIndividualSellerProfileMutation,
 } = authApi;

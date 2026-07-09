@@ -59,11 +59,16 @@ const EMPTY_LISTINGS: Listing[] = [];
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
 const resolveSellerBannerState = (
-  user: { aadhaarVerified?: boolean; isSellerApproved?: boolean } | null,
+  user: {
+    kycStatus?: 'pending' | 'verified' | 'rejected';
+    sellerType?: string;
+    sellerDisplayName?: string;
+  } | null,
 ): BecomeSellerBannerState | null => {
   if (!user) return null;
-  if (user.isSellerApproved) return null;
-  if (user.aadhaarVerified) return 'resume';
+  if (user.kycStatus === 'verified') return null;
+  if (user.sellerDisplayName) return 'pending';
+  if (user.sellerType) return 'resume';
   return 'default';
 };
 

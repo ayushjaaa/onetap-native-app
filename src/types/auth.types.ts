@@ -15,8 +15,15 @@ export interface User {
   email: string;
   role: UserRole;
   phone?: string | null; // how phone numer can be sting
+  // Dormant while AADHAAR_KYC_ENABLED (src/config/featureFlags.ts) is off —
+  // no endpoint sets this today. Kept so the Aadhaar flow still type-checks
+  // when the flag is flipped back on.
   aadhaarVerified?: boolean;
-  isSellerApproved?: boolean;
+  // Mirrors AuthUser.kycStatus on the backend. 'verified' is what the manual
+  // admin-approval flow grants (identity:kyc_verified role + listing:create).
+  kycStatus?: 'pending' | 'verified' | 'rejected';
+  sellerType?: 'individual' | 'wholesale';
+  sellerDisplayName?: string;
   interests?: string | null;
   location?: UserLocation;
   avatarUrl?: string | null;
@@ -119,6 +126,39 @@ export interface VerifyOtpResponse {
   message: string;
   data: {
     phoneVerified: true;
+  };
+}
+
+export interface SetSellerTypeRequest {
+  sellerType: 'individual' | 'wholesale';
+}
+
+export interface SetSellerTypeResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    sellerType: string;
+  };
+}
+
+export interface SubmitIndividualSellerProfileRequest {
+  displayName: string;
+  bio?: string;
+  photoUrl?: string;
+  categories?: string[];
+}
+
+export interface SubmitIndividualSellerProfileResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    sellerType: string;
+    sellerDisplayName: string;
+    sellerBio?: string;
+    sellerCategories?: string[];
+    avatarUrl?: string;
   };
 }
 
