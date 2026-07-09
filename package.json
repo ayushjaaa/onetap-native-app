@@ -1,6 +1,6 @@
 {
   "name": "oneTapReactNative",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "scripts": {
     "android": "ENVFILE=.env.development react-native run-android",
