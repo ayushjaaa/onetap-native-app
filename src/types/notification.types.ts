@@ -71,3 +71,12 @@ export interface MarkAllReadResponseData {
 export interface MarkReadResponseData {
   notification: Notification;
 }
+
+export interface GetFeatureInterestsResponseData {
+  featureKeys: string[];
+}
+
+export interface FeatureInterestResponseData {
+  featureKey: string;
+  subscribed: boolean;
+}
