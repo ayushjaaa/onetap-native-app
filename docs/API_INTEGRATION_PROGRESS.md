@@ -10,13 +10,13 @@
 
 ## Phase 0 — Decisions ([plan](./API_INTEGRATION_PLAN.md#phase-0-decisions-needed-before-wiring-read-this-first))
 
-| #   | Decision                                                                   | Status                         | Notes                                                                     |
-| --- | -------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
-| DN1 | Forgot-password: redesign to email, or build phone-based reset on backend? | ⬜                             | Blocks Phase 9                                                            |
-| DN2 | Aadhaar KYC: interim `mock-verify` swap, or wait for D6 (backend)?         | ⬜                             | Blocks Phase 8                                                            |
-| DN3 | Image-picker library choice                                                | ⬜                             | Blocks Phase 3 (and the photo parts of Phase 2)                           |
-| DN4 | Google Sign-In dead route — fix now or leave deferred?                     | ⬜ (recommend: leave deferred) | Not blocking anything currently — button is UI-disabled anyway            |
-| DN5 | Chat — do not start                                                        | ❌ N/A                         | Backend Phase 5 not built; revisit only after backend chat decision lands |
+| #   | Decision                                                                   | Status                             | Notes                                                                     |
+| --- | -------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------- |
+| DN1 | Forgot-password: redesign to email, or build phone-based reset on backend? | ✅ resolved: (a) redesign to email | Confirmed by Ayush 2026-07-11; unblocks Phase 9                           |
+| DN2 | Aadhaar KYC: interim `mock-verify` swap, or wait for D6 (backend)?         | ⬜                                 | Blocks Phase 8                                                            |
+| DN3 | Image-picker library choice                                                | ⬜                                 | Blocks Phase 3 (and the photo parts of Phase 2)                           |
+| DN4 | Google Sign-In dead route — fix now or leave deferred?                     | ⬜ (recommend: leave deferred)     | Not blocking anything currently — button is UI-disabled anyway            |
+| DN5 | Chat — do not start                                                        | ❌ N/A                             | Backend Phase 5 not built; revisit only after backend chat decision lands |
 
 ---
 
@@ -176,15 +176,17 @@
 
 ---
 
-## Phase 9 — Forgot password ([plan](./API_INTEGRATION_PLAN.md#phase-9-forgot-password-blocked-on-dn1)) — ⛔ blocked on DN1
+## Phase 9 — Forgot password ([plan](./API_INTEGRATION_PLAN.md#phase-9-forgot-password-blocked-on-dn1)) — 🚧 in progress
 
-| Item                                             | Status | Notes |
-| ------------------------------------------------ | ------ | ----- |
-| DN1 resolved                                     | ⬜     |       |
-| `ForgotPasswordPhoneScreen.tsx` redesigned/wired | ⬜     |       |
-| `ForgotPasswordOtpScreen.tsx` redesigned/wired   | ⬜     |       |
-| `ForgotPasswordResetScreen.tsx` wired            | ⬜     |       |
-| Verified against live backend                    | ⬜     |       |
+| Item                                                          | Status | Notes                                                                                                 |
+| ------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| DN1 resolved                                                  | ✅     | (a) email redesign                                                                                    |
+| `authApi.ts`: `forgotPassword` → `POST /auth/forgot-password` | ✅     |                                                                                                       |
+| `authApi.ts`: `resetPassword` → `POST /auth/reset-password`   | ✅     |                                                                                                       |
+| `ForgotPasswordPhoneScreen.tsx` redesigned/wired              | ✅     | Now collects email, calls `forgotPassword`                                                            |
+| `ForgotPasswordOtpScreen.tsx` redesigned/wired                | ✅     | Repurposed as reset-token entry screen (paste token from server log / future email); also does resend |
+| `ForgotPasswordResetScreen.tsx` wired                         | ✅     | Calls `resetPassword({ token, newPassword })`                                                         |
+| Verified against live backend                                 | ⬜     | Not yet exercised against a running backend in this session                                           |
 
 ---
 

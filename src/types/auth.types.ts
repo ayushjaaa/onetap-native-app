@@ -17,6 +17,12 @@ export interface User {
   phone?: string | null; // how phone numer can be sting
   aadhaarVerified?: boolean;
   isSellerApproved?: boolean;
+  // Derived client-side (see `deriveSellerFlags`) from `sellerDisplayName` —
+  // distinguishes "picked a seller type" from "finished the profile step".
+  sellerProfileSubmitted?: boolean;
+  // Derived client-side from `kycStatus === 'rejected'` — a terminal state,
+  // not just "not yet approved" (no resubmission path exists).
+  sellerRejected?: boolean;
   interests?: string | null;
   location?: UserLocation;
   avatarUrl?: string | null;
@@ -24,6 +30,15 @@ export interface User {
   // Only returned by /auth/me — drives show/hide in the app, not `role` (which the backend
   // no longer returns on login and only ever used as a cosmetic signup hint).
   permissions?: string[];
+  kycStatus?: 'pending' | 'verified' | 'rejected';
+  // Only meaningful when kycStatus === 'rejected' — set by the admin's
+  // POST /admin/kyc/:id/reject, cleared on approve.
+  kycRejectionReason?: string;
+  // Seller-context identity — set only after seller onboarding (setSellerType +
+  // submitIndividualSellerProfile). Undefined for buyers and mid-onboarding sellers.
+  // Never use this as the primary display name: the same account buys and sells.
+  sellerType?: SellerType;
+  sellerDisplayName?: string;
 }
 
 export interface RegisterRequest {
@@ -122,6 +137,29 @@ export interface VerifyOtpResponse {
   };
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ForgotPasswordResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: Record<string, never>;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface ResetPasswordResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: Record<string, never>;
+}
+
 export interface GoogleSignInRequest {
   idToken: string;
 }
@@ -134,5 +172,40 @@ export interface GoogleSignInResponse {
     user: User;
     token: string;
     needsLocation: boolean;
+  };
+}
+
+export type SellerType = 'individual' | 'wholesale';
+
+export interface SetSellerTypeRequest {
+  sellerType: SellerType;
+}
+
+export interface SetSellerTypeResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    sellerType: SellerType;
+  };
+}
+
+export interface SubmitIndividualSellerProfileRequest {
+  displayName: string;
+  bio?: string;
+  photoUrl?: string;
+  categories?: string[];
+}
+
+export interface SubmitIndividualSellerProfileResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    sellerType: SellerType;
+    sellerDisplayName: string;
+    sellerBio?: string;
+    sellerCategories?: string[];
+    avatarUrl?: string;
   };
 }

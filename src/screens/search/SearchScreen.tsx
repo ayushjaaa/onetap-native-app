@@ -20,6 +20,7 @@ import { EmptyState, ListingCard } from '@/components/marketplace';
 import { ShimmerCard } from '@/components/common/Shimmer';
 import {
   useAutocompleteSearchQuery,
+  useGetTrendingSearchesQuery,
   useSearchListingsQuery,
 } from '@/api/productsApi';
 import { formatRelativeShort } from '@/data/listingsStub';
@@ -30,13 +31,6 @@ import type { Listing } from '@/types';
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
 const STUB_RECENT = ['iPhone 13', 'Honda Activa', '2 BHK Andheri', 'Sofa set'];
-const STUB_TRENDING = [
-  'iPhone 15',
-  'Royal Enfield',
-  'Plumber near me',
-  'PS5',
-  'Maid service',
-];
 
 const DEBOUNCE_MS = 300;
 const MIN_QUERY_LENGTH = 2;
@@ -87,6 +81,12 @@ export const SearchScreen: React.FC = () => {
   const { data: autocompleteData } = useAutocompleteSearchQuery(
     debouncedQuery,
     { skip: !isQueryReady || isSubmitted },
+  );
+  const { data: trendingSearchesData } = useGetTrendingSearchesQuery();
+  // Backend already sorts by count desc, but re-sort here so the highest-
+  // searched term always renders first regardless of API ordering.
+  const trendingSearches = [...(trendingSearchesData?.trending ?? [])].sort(
+    (a, b) => b.count - a.count,
   );
 
   const suggestions = autocompleteData?.suggestions ?? [];
@@ -234,23 +234,28 @@ export const SearchScreen: React.FC = () => {
               </View>
             ) : null}
 
-            <View style={styles.section}>
-              <View style={styles.sectionTitleRow}>
-                <TrendingUp size={layout.iconSize.sm} color={colors.warning} />
-                <Text style={styles.sectionTitle}>Trending searches</Text>
+            {trendingSearches.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionTitleRow}>
+                  <TrendingUp
+                    size={layout.iconSize.sm}
+                    color={colors.warning}
+                  />
+                  <Text style={styles.sectionTitle}>Trending searches</Text>
+                </View>
+                <View style={styles.chipWrap}>
+                  {trendingSearches.map(({ query: term }) => (
+                    <Pressable
+                      key={term}
+                      onPress={() => handleSubmit(term)}
+                      style={styles.chip}
+                    >
+                      <Text style={styles.chipText}>{term}</Text>
+                    </Pressable>
+                  ))}
+                </View>
               </View>
-              <View style={styles.chipWrap}>
-                {STUB_TRENDING.map(term => (
-                  <Pressable
-                    key={term}
-                    onPress={() => handleSubmit(term)}
-                    style={styles.chip}
-                  >
-                    <Text style={styles.chipText}>{term}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+            ) : null}
           </>
         )}
       </ScrollView>

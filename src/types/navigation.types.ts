@@ -31,8 +31,8 @@ export type AuthStackParamList = {
     needsLocation?: boolean;
   };
   ForgotPasswordPhone: undefined;
-  ForgotPasswordOtp: { phone: string };
-  ForgotPasswordReset: { phone: string };
+  ForgotPasswordOtp: { email: string };
+  ForgotPasswordReset: { token: string };
 };
 
 export type MainTabParamList = {
@@ -91,8 +91,8 @@ export type MainStackParamList = {
   // endpoint on the backend — only list + unread-count + mark-read).
   NotificationDetail: { notificationId: string; notification: Notification };
   ForgotPasswordPhone: undefined;
-  ForgotPasswordOtp: { phone: string };
-  ForgotPasswordReset: { phone: string };
+  ForgotPasswordOtp: { email: string };
+  ForgotPasswordReset: { token: string };
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> =

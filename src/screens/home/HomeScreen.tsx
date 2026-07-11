@@ -118,7 +118,9 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleSearchPress = () => {
-    navigation.getParent()?.navigate('Search' as never);
+    // 'Search' is a sibling tab of Home, not a screen on the outer Stack —
+    // navigate directly, don't go through .getParent().
+    navigation.navigate('Search' as never);
   };
 
   const handlePostAd = () => {

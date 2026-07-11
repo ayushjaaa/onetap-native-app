@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -25,6 +25,8 @@ import {
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useToast } from '@/hooks/useToast';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { useSubmitIndividualSellerProfileMutation } from '@/api/authApi';
+import { mapApiError } from '@/utils/errorMapper';
 import { buildMediaUrl } from '@/utils/media';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -66,6 +68,17 @@ export const IndividualOnboardingScreen: React.FC = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
+  const [submitIndividualSellerProfile] =
+    useSubmitIndividualSellerProfileMutation();
+
+  // Defensive: don't re-show the profile form to someone who already
+  // submitted it (e.g. hardware-back from PackageSelection) — resume
+  // further along instead of letting them resubmit.
+  useEffect(() => {
+    if (user?.sellerProfileSubmitted) {
+      navigation.replace('BecomeSellerIntro');
+    }
+  }, [user?.sellerProfileSubmitted, navigation]);
 
   const trimmedName = name.trim();
   const nameValid =
@@ -93,13 +106,18 @@ export const IndividualOnboardingScreen: React.FC = () => {
     if (!canSubmit) return;
     setIsSubmitting(true);
     try {
-      // TODO: real POST /seller/individual { displayName, bio, photoUrl, categories }
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 700));
+      await submitIndividualSellerProfile({
+        displayName: trimmedName,
+        ...(bio.trim() ? { bio: bio.trim() } : {}),
+        ...(photoUri ? { photoUrl: photoUri } : {}),
+        ...(categories.length > 0 ? { categories } : {}),
+      }).unwrap();
       setDidSucceed(true);
-    } catch {
+    } catch (err) {
+      const mapped = mapApiError(err as never);
       toast.error({
         title: "Couldn't activate seller account",
-        message: 'Network issue — try again in a moment.',
+        message: mapped.message,
       });
     } finally {
       setIsSubmitting(false);

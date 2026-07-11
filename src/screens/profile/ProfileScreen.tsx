@@ -32,6 +32,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useToast } from '@/hooks/useToast';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { logout, setUser } from '@/store/authSlice';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { secureStorage } from '@/services/secureStorage';
 import { googleAuth } from '@/services/googleAuth';
 import { buildMediaUrl } from '@/utils/media';
@@ -137,8 +138,8 @@ export const ProfileScreen: React.FC = () => {
   // Seller-row visibility:
   //   - active seller         → show wallet + sales rows
   //   - aadhaar-verified only → show wallet + sales rows AND a resume row
-  //                             that drops them into Package Selection so
-  //                             they can finish setup
+  //                             that resumes onboarding wherever it's
+  //                             actually at (not always "buy a package")
   //   - neither               → don't render the section at all
   const showSellerSection =
     Boolean(user?.isSellerApproved) || Boolean(user?.aadhaarVerified);
@@ -147,7 +148,11 @@ export const ProfileScreen: React.FC = () => {
 
   const handleProductWallet = () => navigation.navigate('ProductWallet');
   const handleSalesHistory = () => navigation.navigate('SalesHistory');
-  const handleFinishSellerSetup = () => navigation.navigate('PackageSelection');
+  // Reuses the same resume logic as the "Post an Ad" flow instead of
+  // hardcoding PackageSelection — a seller who already bought a package
+  // (or was rejected) shouldn't be sent back to buy another one.
+  const handleFinishSellerSetup = () =>
+    navigation.navigate(resolvePostAdDestination(user) as never);
   const handlePurchaseHistory = () => navigation.navigate('PurchaseHistory');
   const handleMessages = () => navigation.navigate('ChatList');
 
@@ -187,6 +192,11 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.name}>{user?.name ?? 'User'}</Text>
           <Text style={styles.email}>{user?.email}</Text>
           {user?.phone ? <Text style={styles.phone}>{user.phone}</Text> : null}
+          {user?.sellerType && user?.sellerDisplayName ? (
+            <Text style={styles.sellingAs}>
+              Selling as {user.sellerDisplayName}
+            </Text>
+          ) : null}
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
               {user?.role?.toUpperCase() ?? 'USER'}
@@ -345,6 +355,12 @@ const styles = StyleSheet.create({
   phone: {
     ...typography.caption,
     color: colors.textMuted,
+    marginTop: spacing.xs,
+  },
+  sellingAs: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: '600',
     marginTop: spacing.xs,
   },
   roleBadge: {

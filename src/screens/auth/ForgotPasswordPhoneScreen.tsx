@@ -6,32 +6,45 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Screen } from '@/components/common/Screen';
 import { Button } from '@/components/common/Button';
+import { Input } from '@/components/common/Input';
 import { Header } from '@/components/common/Header';
-import { PhoneInput } from '@/components/auth/PhoneInput';
-import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
+import { useToast } from '@/hooks/useToast';
+import { useForgotPasswordMutation } from '@/api/authApi';
+import { mapApiError } from '@/utils/errorMapper';
+import { trimEmail } from '@/utils/formatters';
+import {
+  forgotPasswordEmailSchema,
+  type ForgotPasswordEmailFormData,
+} from '@/utils/schemas';
 import { colors, spacing, typography } from '@/theme';
 import type { AuthStackParamList } from '@/types/navigation.types';
 
-type Nav = NativeStackNavigationProp<
-  AuthStackParamList,
-  'ForgotPasswordPhone'
->;
+type Nav = NativeStackNavigationProp<AuthStackParamList, 'ForgotPasswordPhone'>;
 
 export const ForgotPasswordPhoneScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const toast = useToast();
+  const [forgotPassword, { isLoading }] = useForgotPasswordMutation();
 
   const {
     control,
     handleSubmit,
     formState: { errors, touchedFields, isValid },
-  } = useForm<PhoneFormData>({
-    resolver: zodResolver(phoneFormSchema),
-    defaultValues: { phone: '' },
+  } = useForm<ForgotPasswordEmailFormData>({
+    resolver: zodResolver(forgotPasswordEmailSchema),
+    defaultValues: { email: '' },
     mode: 'onTouched',
   });
 
-  const onSubmit = (values: PhoneFormData) => {
-    navigation.navigate('ForgotPasswordOtp', { phone: values.phone });
+  const onSubmit = async (values: ForgotPasswordEmailFormData) => {
+    const email = trimEmail(values.email);
+    try {
+      await forgotPassword({ email }).unwrap();
+      navigation.navigate('ForgotPasswordOtp', { email });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({ title: 'Request failed', message: mapped.message });
+    }
   };
 
   return (
@@ -41,25 +54,31 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
       <View style={styles.intro}>
         <Text style={styles.title}>Reset your password</Text>
         <Text style={styles.subtitle}>
-          Enter your registered mobile number. We'll send you a 4-digit OTP to
-          verify your identity.
+          Enter your registered email address. If it's registered, we'll send
+          you a password reset link.
         </Text>
       </View>
 
       <Controller
         control={control}
-        name="phone"
+        name="email"
         render={({ field: { onChange, onBlur, value } }) => (
-          <PhoneInput
-            label="Phone no."
+          <Input
+            label="Email"
             required
+            placeholder="you@example.com"
             value={value}
             onChangeText={onChange}
             onBlur={onBlur}
-            error={errors.phone?.message}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="done"
+            error={errors.email?.message}
             successMessage={
-              touchedFields.phone && !errors.phone && value.length === 10
-                ? 'Valid number'
+              touchedFields.email && !errors.email && value.length > 0
+                ? 'Valid email'
                 : undefined
             }
           />
@@ -69,9 +88,10 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
-        title="Send OTP"
+        title="Send reset link"
         onPress={handleSubmit(onSubmit)}
-        disabled={!isValid}
+        loading={isLoading}
+        disabled={!isValid || isLoading}
       />
     </Screen>
   );

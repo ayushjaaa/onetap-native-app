@@ -34,8 +34,10 @@ import {
   CategoryPickerSheet,
 } from '@/components/marketplace';
 import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
-import { useCreateListingMutation } from '@/api/productsApi';
-import { useGetWalletQuery } from '@/api/walletApi';
+import {
+  useCreateListingMutation,
+  useGetMyListingsQuery,
+} from '@/api/productsApi';
 import { mapApiError } from '@/utils/errorMapper';
 import { buildMediaUrl } from '@/utils/media';
 import type { ListingCondition } from '@/types';
@@ -128,8 +130,14 @@ export const ListAProductScreen: React.FC = () => {
   }, [hasLocation, locationFetchStatus]);
 
   const { data: categoryTree } = useGetCategoryTreeQuery();
-  const { data: walletData } = useGetWalletQuery();
-  const slotsAvailable = walletData?.wallet.postCredits ?? 0;
+  // `summary.slotsRemaining` (postSlots - active listing count) is the same
+  // number POST /marketplace/listings gates on — wallet.postCredits is a
+  // separate cumulative purchase counter that's never decremented, so it
+  // doesn't reflect what's actually spendable.
+  const { data: myListingsData, isLoading: slotsLoading } =
+    useGetMyListingsQuery();
+  const slotsAvailable = myListingsData?.summary.slotsRemaining ?? 0;
+  const outOfSlots = !slotsLoading && slotsAvailable <= 0;
   const [createListing, { isLoading: submitting }] = useCreateListingMutation();
   const { pick: pickListingPhoto, isUploading } = useImageUpload('listing');
 
@@ -248,6 +256,64 @@ export const ListAProductScreen: React.FC = () => {
       toast.error({ title: "Couldn't post listing", message: mapped.message });
     }
   };
+
+  if (slotsLoading) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (outOfSlots) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={navigation.goBack}
+            hitSlop={spacing.md}
+            style={styles.backBtn}
+          >
+            <ChevronLeft size={layout.iconSize.lg} color={colors.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Post a product</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={styles.noSlotsWrap}>
+          <View style={styles.noSlotsIconCircle}>
+            <AlertTriangle size={40} color={colors.error} />
+          </View>
+          <Text style={styles.noSlotsTitle}>You're out of posting slots</Text>
+          <Text style={styles.noSlotsBody}>
+            Aapke saare posting slots use ho chuke hain. Naya product post karne
+            ke liye ek package khareedein — sold ya rejected listings se bhi
+            slot wapas mil jaata hai.
+          </Text>
+
+          <Pressable
+            onPress={() => navigation.navigate('PackageSelection')}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              styles.noSlotsPrimaryBtn,
+              pressed && styles.primaryBtnPressed,
+            ]}
+          >
+            <Text style={styles.primaryBtnText}>Buy more slots</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => navigation.navigate('ProductWallet')}
+            hitSlop={spacing.sm}
+            style={styles.noSlotsLink}
+          >
+            <Text style={styles.noSlotsLinkText}>View wallet</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -664,6 +730,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   flex: {
     flex: 1,
   },
@@ -1002,6 +1073,55 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     ...typography.button,
     color: colors.white,
+  },
+
+  headerSpacer: {
+    width: layout.closeButton,
+  },
+
+  // Out-of-slots empty state
+  noSlotsWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  noSlotsIconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xl,
+  },
+  noSlotsTitle: {
+    ...typography.h3,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  noSlotsBody: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: fontSize.base * 1.6,
+    marginBottom: spacing.xl,
+  },
+  noSlotsPrimaryBtn: {
+    flex: 0,
+    alignSelf: 'stretch',
+    paddingHorizontal: spacing.xl,
+  },
+  noSlotsLink: {
+    marginTop: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  noSlotsLinkText: {
+    ...typography.label,
+    color: colors.textSecondary,
   },
 
   // Slot sheet

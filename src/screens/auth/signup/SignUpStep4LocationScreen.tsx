@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '@/components/common/Screen';
@@ -8,16 +8,13 @@ import { Header } from '@/components/common/Header';
 import { StepIndicator } from '@/components/common/StepIndicator';
 import { useLocation } from '@/hooks/useLocation';
 import { useToast } from '@/hooks/useToast';
-import {
-  useRegisterMutation,
-  useUpdateProfileMutation,
-} from '@/api/authApi';
+import { useRegisterMutation, useUpdateProfileMutation } from '@/api/authApi';
 import { mapApiError } from '@/utils/errorMapper';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { setLocation } from '@/store/locationSlice';
 import { setCredentials } from '@/store/authSlice';
 import { secureStorage } from '@/services/secureStorage';
-import { openAppSettings } from '@/utils/permissions';
+import { openAppSettings, openLocationSettings } from '@/utils/permissions';
 import { useSignupContext } from './SignupContext';
 import { colors, spacing, typography } from '@/theme';
 import type {
@@ -53,6 +50,26 @@ export const SignUpStep4LocationScreen: React.FC = () => {
     fetchLocation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Prompt with a real, tappable popup when GPS/location services are off,
+  // instead of just showing an inline error line.
+  useEffect(() => {
+    if (status !== 'gps_off') return;
+    Alert.alert(
+      'Turn on Location',
+      'Location services are off. Enable them to continue.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Enable',
+          onPress: async () => {
+            await openLocationSettings();
+            fetchLocation();
+          },
+        },
+      ],
+    );
+  }, [status, fetchLocation]);
 
   // Sync resolved location into context + redux
   useEffect(() => {
@@ -112,7 +129,10 @@ export const SignUpStep4LocationScreen: React.FC = () => {
         // RootNavigator switches to Main automatically
       } catch (err) {
         const mapped = mapApiError(err as never);
-        toast.error({ title: 'Could not save location', message: mapped.message });
+        toast.error({
+          title: 'Could not save location',
+          message: mapped.message,
+        });
       }
       return;
     }

@@ -34,7 +34,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>OneTap365 needs your location to show services and products near you.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>OneTap needs access to your photos to set a profile picture or add listing photos.</string>
 	<key>NSCameraUsageDescription</key>

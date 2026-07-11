@@ -12,6 +12,8 @@ import type {
   GetMyListingsResponseData,
   GetTrendingParams,
   GetTrendingResponseData,
+  GetTrendingSearchesParams,
+  GetTrendingSearchesResponseData,
   Listing,
   SearchAutocompleteResponseData,
   SearchListingsParams,
@@ -184,6 +186,29 @@ export const productsApi = baseApi.injectEndpoints({
       ) => response.data,
       keepUnusedDataFor: 15,
     }),
+
+    getTrendingSearches: builder.query<
+      GetTrendingSearchesResponseData,
+      GetTrendingSearchesParams | void
+    >({
+      query: params => ({
+        url: '/marketplace/listings/search/trending',
+        method: 'GET',
+        params: params ?? undefined,
+      }),
+      transformResponse: (
+        response: ApiResponse<GetTrendingSearchesResponseData>,
+      ) => {
+        console.log(
+          '[productsApi] getTrendingSearches raw response:',
+          JSON.stringify(response, null, 2),
+        );
+        return response.data;
+      },
+      // Aggregate over a rolling window server-side — safe to cache a bit
+      // longer than live listings data.
+      keepUnusedDataFor: 300,
+    }),
   }),
   overrideExisting: false,
 });
@@ -199,6 +224,7 @@ export const {
   useDeleteListingMutation,
   useSearchListingsQuery,
   useAutocompleteSearchQuery,
+  useGetTrendingSearchesQuery,
 } = productsApi;
 
 export type { Listing };

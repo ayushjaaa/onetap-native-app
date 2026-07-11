@@ -10,6 +10,8 @@ import {
   useGetWalletQuery,
   useGetWalletTransactionsQuery,
 } from '@/api/walletApi';
+import { useGetMyListingsQuery } from '@/api/productsApi';
+import { formatCurrency } from '@/utils/formatters';
 import type { WalletTransaction } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -46,14 +48,23 @@ export const ProductWalletScreen: React.FC = () => {
   const { data: walletData, isLoading: isLoadingWallet } = useGetWalletQuery();
   const { data: txData, isLoading: isLoadingTx } =
     useGetWalletTransactionsQuery({ limit: 20 });
+  // Source of truth for "how many can I post right now" — same field
+  // POST /marketplace/listings gates on and MyAdsScreen/ListAProductScreen
+  // already show. wallet.postCredits is a separate lifetime-purchased
+  // counter that's never decremented, so it's not "available" slots.
+  const { data: myListingsData, isLoading: isLoadingSlots } =
+    useGetMyListingsQuery();
 
-  const availableSlots = walletData?.wallet.postCredits ?? 0;
+  const availableSlots = myListingsData?.summary.slotsRemaining ?? 0;
+  const totalPostCreditsPurchased = walletData?.wallet.postCredits ?? 0;
+  // biddingBalance is stored in paise; formatCurrency expects rupees.
+  const biddingBalance = (walletData?.wallet.biddingBalance ?? 0) / 100;
   const postSlotTransactions = (
     txData?.transactions ?? EMPTY_TRANSACTIONS
   ).filter(t => t.field === 'postCredits');
 
-  const hasNoSlots = !isLoadingWallet && availableSlots === 0;
-  const isLoading = isLoadingWallet || isLoadingTx;
+  const hasNoSlots = !isLoadingSlots && availableSlots === 0;
+  const isLoading = isLoadingWallet || isLoadingTx || isLoadingSlots;
 
   const handlePostProduct = () => {
     navigation.navigate('ListProduct');
@@ -87,7 +98,11 @@ export const ProductWalletScreen: React.FC = () => {
             <ShimmerCard />
           </>
         ) : hasNoSlots ? (
-          <EmptyWalletView onBuyPress={handleBuyMore} />
+          <EmptyWalletView
+            onBuyPress={handleBuyMore}
+            biddingBalance={biddingBalance}
+            totalPostCreditsPurchased={totalPostCreditsPurchased}
+          />
         ) : (
           <>
             {/* Hero */}
@@ -97,6 +112,26 @@ export const ProductWalletScreen: React.FC = () => {
                 available
               </Text>
               <Text style={styles.heroSub}>Post slots for new listings</Text>
+
+              <View style={styles.heroStatsGroup}>
+                <View style={styles.heroBalanceRow}>
+                  <Text style={styles.heroBalanceLabel}>
+                    Total slots purchased (lifetime)
+                  </Text>
+                  <Text style={styles.heroBalanceValue}>
+                    {totalPostCreditsPurchased}
+                  </Text>
+                </View>
+                <View
+                  style={[styles.heroBalanceRow, styles.heroBalanceRowNoBorder]}
+                >
+                  <Text style={styles.heroBalanceLabel}>Bidding balance</Text>
+                  <Text style={styles.heroBalanceValue}>
+                    {formatCurrency(biddingBalance)}
+                  </Text>
+                </View>
+              </View>
+
               <View style={styles.heroBtnRow}>
                 <Pressable
                   onPress={handlePostProduct}
@@ -206,17 +241,39 @@ const LedgerRow: React.FC<{
   );
 };
 
-const EmptyWalletView: React.FC<{ onBuyPress: () => void }> = ({
-  onBuyPress,
-}) => (
+const EmptyWalletView: React.FC<{
+  onBuyPress: () => void;
+  biddingBalance: number;
+  totalPostCreditsPurchased: number;
+}> = ({ onBuyPress, biddingBalance, totalPostCreditsPurchased }) => (
   <View style={styles.emptyWrap}>
     <View style={styles.emptyIconCircle}>
       <Inbox size={layout.iconSize.xl} color={colors.textMuted} />
     </View>
-    <Text style={styles.emptyTitle}>No active slots yet</Text>
-    <Text style={styles.emptyBody}>
-      Buy your first pack to start posting products on OneTap.
+    <Text style={styles.emptyTitle}>
+      {totalPostCreditsPurchased > 0
+        ? 'All your slots are in use'
+        : 'No active slots yet'}
     </Text>
+    <Text style={styles.emptyBody}>
+      {totalPostCreditsPurchased > 0
+        ? 'Every purchased slot is tied to a Pending or Live listing. Sell, expire, or delete one to free up a slot, or buy more.'
+        : 'Buy your first pack to start posting products on OneTap.'}
+    </Text>
+
+    <View style={styles.emptyBalanceRow}>
+      <Text style={styles.heroBalanceLabel}>
+        Total slots purchased (lifetime)
+      </Text>
+      <Text style={styles.heroBalanceValue}>{totalPostCreditsPurchased}</Text>
+    </View>
+    <View style={[styles.emptyBalanceRow, styles.emptyBalanceRowTight]}>
+      <Text style={styles.heroBalanceLabel}>Bidding balance</Text>
+      <Text style={styles.heroBalanceValue}>
+        {formatCurrency(biddingBalance)}
+      </Text>
+    </View>
+
     <Pressable
       onPress={onBuyPress}
       style={({ pressed }) => [
@@ -283,6 +340,33 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: spacing.xs,
+  },
+  heroStatsGroup: {
+    width: '100%',
+  },
+  heroBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.primaryAlpha30,
+  },
+  heroBalanceRowNoBorder: {
+    marginTop: spacing.sm,
+    paddingTop: 0,
+    borderTopWidth: 0,
+  },
+  heroBalanceLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  heroBalanceValue: {
+    ...typography.bodyBold,
+    color: colors.textPrimary,
   },
   heroBtnRow: {
     flexDirection: 'row',
@@ -418,6 +502,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
     lineHeight: fontSize.base * 1.6,
+  },
+  emptyBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: spacing.xl,
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.card,
+  },
+  emptyBalanceRowTight: {
+    marginTop: spacing.sm,
   },
   emptyCta: {
     height: layout.buttonHeight,

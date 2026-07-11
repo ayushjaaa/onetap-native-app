@@ -18,14 +18,9 @@ import {
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useToast } from '@/hooks/useToast';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { useSetSellerTypeMutation } from '@/api/authApi';
+import { mapApiError } from '@/utils/errorMapper';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'SellerType'>;
@@ -67,13 +62,29 @@ export const SellerTypeScreen: React.FC = () => {
 
   const [selected, setSelected] = useState<SellerType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [setSellerTypeMutation] = useSetSellerTypeMutation();
 
-  // Defensive: already-active seller shouldn't be picking a type again.
+  // Defensive: a seller who already picked a type (registered) shouldn't
+  // land back here and be walked through registering again — resume at
+  // whatever's actually next instead. Catches stale nav-stack entries, not
+  // just fresh navigations (those are already routed correctly upstream by
+  // `resolvePostAdDestination` / `BecomeSellerIntroScreen`).
   useEffect(() => {
     if (user?.isSellerApproved) {
       navigation.popToTop();
+    } else if (user?.sellerType) {
+      if (!user.sellerProfileSubmitted) {
+        navigation.replace('IndividualOnboarding');
+      } else {
+        navigation.replace('BecomeSellerIntro');
+      }
     }
-  }, [user?.isSellerApproved, navigation]);
+  }, [
+    user?.isSellerApproved,
+    user?.sellerType,
+    user?.sellerProfileSubmitted,
+    navigation,
+  ]);
 
   const handleWholesaleTap = () => {
     toast.info({
@@ -87,16 +98,16 @@ export const SellerTypeScreen: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // TODO: real PATCH /me { sellerType: 'individual' } once backend ships.
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
+      await setSellerTypeMutation({ sellerType: 'individual' }).unwrap();
 
       // `replace` so the user can't back-button into the type-selection
       // step after committing to Individual.
       navigation.replace('IndividualOnboarding');
-    } catch {
+    } catch (err) {
+      const mapped = mapApiError(err as never);
       toast.error({
         title: "Couldn't save your selection",
-        message: 'Network issue — try again in a moment.',
+        message: mapped.message,
       });
     } finally {
       setIsSubmitting(false);
@@ -138,7 +149,11 @@ export const SellerTypeScreen: React.FC = () => {
         <SellerTypeCard
           config={WHOLESALE}
           disabled={!WHOLESALE_ENABLED}
-          onPress={WHOLESALE_ENABLED ? () => setSelected('wholesale') : handleWholesaleTap}
+          onPress={
+            WHOLESALE_ENABLED
+              ? () => setSelected('wholesale')
+              : handleWholesaleTap
+          }
         />
       </ScrollView>
 
@@ -191,10 +206,7 @@ const SellerTypeCard: React.FC<SellerTypeCardProps> = ({
     >
       <View style={styles.cardHeader}>
         <View
-          style={[
-            styles.cardIconWrap,
-            disabled && styles.cardIconWrapDisabled,
-          ]}
+          style={[styles.cardIconWrap, disabled && styles.cardIconWrapDisabled]}
         >
           <config.Icon
             size={layout.iconSize.base}
@@ -227,14 +239,9 @@ const SellerTypeCard: React.FC<SellerTypeCardProps> = ({
         {config.bullets.map(text => (
           <View key={text} style={styles.bulletRow}>
             <View
-              style={[
-                styles.bulletDot,
-                disabled && styles.bulletDotDisabled,
-              ]}
+              style={[styles.bulletDot, disabled && styles.bulletDotDisabled]}
             />
-            <Text
-              style={[styles.bulletText, disabled && styles.textDisabled]}
-            >
+            <Text style={[styles.bulletText, disabled && styles.textDisabled]}>
               {text}
             </Text>
           </View>

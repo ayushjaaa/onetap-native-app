@@ -33,3 +33,15 @@ export const requestLocationPermission =
 export const openAppSettings = (): Promise<void> => {
   return Linking.openSettings();
 };
+
+export const openLocationSettings = async (): Promise<void> => {
+  if (Platform.OS === 'android') {
+    try {
+      await Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+      return;
+    } catch {
+      // fall through to app settings below
+    }
+  }
+  await Linking.openSettings();
+};

@@ -159,3 +159,17 @@ export interface SearchListingsResponseData {
 export interface SearchAutocompleteResponseData {
   suggestions: string[];
 }
+
+export interface GetTrendingSearchesParams {
+  days?: number;
+  limit?: number;
+}
+
+export interface TrendingSearchTerm {
+  query: string;
+  count: number;
+}
+
+export interface GetTrendingSearchesResponseData {
+  trending: TrendingSearchTerm[];
+}
