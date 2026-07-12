@@ -12,6 +12,12 @@ import type {
   ResendOtpResponse,
   VerifyOtpRequest,
   VerifyOtpResponse,
+  SendForgotPasswordOtpRequest,
+  SendForgotPasswordOtpResponse,
+  VerifyForgotPasswordOtpRequest,
+  VerifyForgotPasswordOtpResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
   GoogleSignInRequest,
   GoogleSignInResponse,
   SetSellerTypeRequest,
@@ -88,6 +94,39 @@ export const authApi = baseApi.injectEndpoints({
       }),
     }),
 
+    sendForgotPasswordOtp: builder.mutation<
+      SendForgotPasswordOtpResponse,
+      SendForgotPasswordOtpRequest
+    >({
+      query: body => ({
+        url: '/auth/forgot-password/send-otp',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    verifyForgotPasswordOtp: builder.mutation<
+      VerifyForgotPasswordOtpResponse,
+      VerifyForgotPasswordOtpRequest
+    >({
+      query: body => ({
+        url: '/auth/forgot-password/verify-otp',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    resetPassword: builder.mutation<
+      ResetPasswordResponse,
+      ResetPasswordRequest
+    >({
+      query: body => ({
+        url: '/auth/reset-password',
+        method: 'POST',
+        body,
+      }),
+    }),
+
     setSellerType: builder.mutation<
       SetSellerTypeResponse,
       SetSellerTypeRequest
@@ -125,6 +164,9 @@ export const {
   useSendOtpMutation,
   useResendOtpMutation,
   useVerifyOtpMutation,
+  useSendForgotPasswordOtpMutation,
+  useVerifyForgotPasswordOtpMutation,
+  useResetPasswordMutation,
   useSetSellerTypeMutation,
   useSubmitIndividualSellerProfileMutation,
 } = authApi;

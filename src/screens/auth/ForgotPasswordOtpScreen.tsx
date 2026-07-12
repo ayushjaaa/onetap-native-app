@@ -9,7 +9,11 @@ import { OtpInput } from '@/components/auth/OtpInput';
 import { useToast } from '@/hooks/useToast';
 import { useOtpTimer, formatTimer } from '@/hooks/useOtpTimer';
 import {
-  MOCK_OTP,
+  useSendForgotPasswordOtpMutation,
+  useVerifyForgotPasswordOtpMutation,
+} from '@/api/authApi';
+import { mapApiError } from '@/utils/errorMapper';
+import {
   OTP_LENGTH,
   OTP_TIMER_SECONDS,
   OTP_MAX_ATTEMPTS,
@@ -36,6 +40,10 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
 
   const { remaining, expired, restart } = useOtpTimer(OTP_TIMER_SECONDS);
 
+  const [sendOtp, { isLoading: resending }] =
+    useSendForgotPasswordOtpMutation();
+  const [verifyOtp] = useVerifyForgotPasswordOtpMutation();
+
   // Clear error as user retypes
   useEffect(() => {
     if (hasError && otp.length < OTP_LENGTH) {
@@ -43,7 +51,7 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
     }
   }, [otp, hasError]);
 
-  // Auto-submit when 4 digits entered
+  // Auto-submit once all digits are entered
   useEffect(() => {
     if (otp.length === OTP_LENGTH && !isProcessing) {
       handleVerify();
@@ -51,46 +59,53 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otp]);
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
 
-    // Mock verify — checks against 1234
-    if (otp === MOCK_OTP) {
+    try {
+      const result = await verifyOtp({ phone, code: otp }).unwrap();
+      navigation.navigate('ForgotPasswordReset', {
+        resetToken: result.data.resetToken,
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
+      setHasError(true);
+      setOtp('');
+
+      if (mapped.status === 429) {
+        toast.error({ title: 'Too many attempts', message: mapped.message });
+      } else if (mapped.message.toLowerCase().includes('expired')) {
+        toast.error({ title: 'Code expired', message: mapped.message });
+      } else {
+        toast.error({ title: 'Verification failed', message: mapped.message });
+      }
+    } finally {
       setIsProcessing(false);
-      navigation.navigate('ForgotPasswordReset', { phone });
-      return;
-    }
-
-    const newAttempts = attempts + 1;
-    setAttempts(newAttempts);
-    setHasError(true);
-    setOtp('');
-    setIsProcessing(false);
-
-    if (newAttempts >= OTP_MAX_ATTEMPTS) {
-      toast.error({
-        title: 'Too many attempts',
-        message: 'Please request a new OTP.',
-      });
-    } else {
-      toast.error({
-        title: 'Verification failed',
-        message: 'Invalid OTP. Please try again.',
-      });
     }
   };
 
-  const handleResend = () => {
+  const handleResend = async () => {
     if (!expired) return;
-    restart();
-    setAttempts(0);
-    setHasError(false);
-    setOtp('');
-    toast.success({
-      title: 'OTP sent',
-      message: `New OTP sent to +91${phone}`,
-    });
+    try {
+      await sendOtp({ phone }).unwrap();
+      restart();
+      setAttempts(0);
+      setHasError(false);
+      setOtp('');
+      toast.success({
+        title: 'OTP sent',
+        message: `New OTP sent to +91${phone}`,
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({
+        title: mapped.status === 429 ? 'Too many requests' : 'Could not resend',
+        message: mapped.message,
+      });
+    }
   };
 
   const blocked = attempts >= OTP_MAX_ATTEMPTS;
@@ -102,7 +117,7 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
       <View style={styles.intro}>
         <Text style={styles.title}>Enter verification code</Text>
         <Text style={styles.subtitle}>
-          We sent a 4-digit code to{'\n'}
+          We sent a {OTP_LENGTH}-digit code to{'\n'}
           <Text style={styles.phoneText}>+91 {phone}</Text>
         </Text>
       </View>
@@ -121,13 +136,16 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
         {expired ? (
           <Pressable
             onPress={handleResend}
+            disabled={resending}
             hitSlop={8}
             style={({ pressed }) => [
               styles.resendBtn,
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.resendText}>Resend OTP</Text>
+            <Text style={styles.resendText}>
+              {resending ? 'Sending…' : 'Resend OTP'}
+            </Text>
           </Pressable>
         ) : (
           <Text style={styles.timerText}>
@@ -144,10 +162,6 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
         loading={isProcessing}
         disabled={otp.length !== OTP_LENGTH || isProcessing || blocked}
       />
-
-      <Text style={styles.mockHint}>
-        Demo mode: use OTP <Text style={styles.mockOtp}>1234</Text>
-      </Text>
     </Screen>
   );
 };
@@ -201,16 +215,5 @@ const styles = StyleSheet.create({
   spacer: {
     flex: 1,
     minHeight: spacing['3xl'],
-  },
-  mockHint: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.base,
-  },
-  mockOtp: {
-    color: colors.primary,
-    fontWeight: '700',
-    fontFamily: 'monospace',
   },
 });

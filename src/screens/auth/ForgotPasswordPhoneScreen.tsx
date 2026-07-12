@@ -9,16 +9,19 @@ import { Button } from '@/components/common/Button';
 import { Header } from '@/components/common/Header';
 import { PhoneInput } from '@/components/auth/PhoneInput';
 import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
+import { useSendForgotPasswordOtpMutation } from '@/api/authApi';
+import { useToast } from '@/hooks/useToast';
+import { mapApiError } from '@/utils/errorMapper';
 import { colors, spacing, typography } from '@/theme';
 import type { AuthStackParamList } from '@/types/navigation.types';
 
-type Nav = NativeStackNavigationProp<
-  AuthStackParamList,
-  'ForgotPasswordPhone'
->;
+type Nav = NativeStackNavigationProp<AuthStackParamList, 'ForgotPasswordPhone'>;
 
 export const ForgotPasswordPhoneScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const toast = useToast();
+
+  const [sendOtp, { isLoading }] = useSendForgotPasswordOtpMutation();
 
   const {
     control,
@@ -30,8 +33,14 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
     mode: 'onTouched',
   });
 
-  const onSubmit = (values: PhoneFormData) => {
-    navigation.navigate('ForgotPasswordOtp', { phone: values.phone });
+  const onSubmit = async (values: PhoneFormData) => {
+    try {
+      await sendOtp({ phone: values.phone }).unwrap();
+      navigation.navigate('ForgotPasswordOtp', { phone: values.phone });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({ title: 'Could not send OTP', message: mapped.message });
+    }
   };
 
   return (
@@ -69,9 +78,10 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
-        title="Send OTP"
+        title={isLoading ? 'Sending…' : 'Send OTP'}
         onPress={handleSubmit(onSubmit)}
-        disabled={!isValid}
+        loading={isLoading}
+        disabled={!isValid || isLoading}
       />
     </Screen>
   );

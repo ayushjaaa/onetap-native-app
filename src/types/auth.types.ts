@@ -37,6 +37,7 @@ export interface RegisterRequest {
   name: string;
   email: string;
   password: string;
+  phone: string;
   address?: string;
   city?: string;
   state?: string;
@@ -127,6 +128,45 @@ export interface VerifyOtpResponse {
   data: {
     phoneVerified: true;
   };
+}
+
+export interface SendForgotPasswordOtpRequest {
+  phone: string;
+}
+
+export interface SendForgotPasswordOtpResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    expiresInSeconds?: number;
+  };
+}
+
+export interface VerifyForgotPasswordOtpRequest {
+  phone: string;
+  code: string;
+}
+
+export interface VerifyForgotPasswordOtpResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    resetToken: string;
+  };
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface ResetPasswordResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: Record<string, never>;
 }
 
 export interface SetSellerTypeRequest {

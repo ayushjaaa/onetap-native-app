@@ -4,7 +4,8 @@ export interface SignupData {
   name: string;
   email: string;
   password: string;
-  // Location is captured at Step 4 — kept here for the final POST
+  // Phone + location are both captured at Step 4 — kept here for the final POST
+  phone?: string;
   lat?: number;
   lng?: number;
   city?: string;

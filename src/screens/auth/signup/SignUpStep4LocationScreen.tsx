@@ -2,16 +2,17 @@ import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Screen } from '@/components/common/Screen';
 import { Button } from '@/components/common/Button';
 import { Header } from '@/components/common/Header';
 import { StepIndicator } from '@/components/common/StepIndicator';
+import { PhoneInput } from '@/components/auth/PhoneInput';
+import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
 import { useLocation } from '@/hooks/useLocation';
 import { useToast } from '@/hooks/useToast';
-import {
-  useRegisterMutation,
-  useUpdateProfileMutation,
-} from '@/api/authApi';
+import { useRegisterMutation, useUpdateProfileMutation } from '@/api/authApi';
 import { mapApiError } from '@/utils/errorMapper';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { setLocation } from '@/store/locationSlice';
@@ -48,6 +49,18 @@ export const SignUpStep4LocationScreen: React.FC = () => {
   const [updateProfile, { isLoading: updatingProfile }] =
     useUpdateProfileMutation();
 
+  // Manual signup only — Google flow already collects+verifies phone via
+  // the separate Phone/Otp screens before ever reaching this step.
+  const {
+    control,
+    handleSubmit,
+    formState: { errors, touchedFields, isValid: isPhoneValid },
+  } = useForm<PhoneFormData>({
+    resolver: zodResolver(phoneFormSchema),
+    defaultValues: { phone: '' },
+    mode: 'onTouched',
+  });
+
   // Auto-trigger location fetch on screen mount
   useEffect(() => {
     fetchLocation();
@@ -79,7 +92,7 @@ export const SignUpStep4LocationScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved]);
 
-  const handleCreateAccount = async () => {
+  const handleCreateAccount = async (phoneValue?: string) => {
     if (!resolved) {
       toast.error({
         title: 'Location required',
@@ -112,16 +125,23 @@ export const SignUpStep4LocationScreen: React.FC = () => {
         // RootNavigator switches to Main automatically
       } catch (err) {
         const mapped = mapApiError(err as never);
-        toast.error({ title: 'Could not save location', message: mapped.message });
+        toast.error({
+          title: 'Could not save location',
+          message: mapped.message,
+        });
       }
       return;
     }
 
-    // Manual signup flow (existing)
+    // Manual signup flow (existing) — phoneValue is always set here since this
+    // branch is only reached via handleSubmit(), which already validated it.
+    if (!phoneValue) return;
+
     const payload = {
       name: data.name,
       email: data.email,
       password: data.password,
+      phone: phoneValue,
       lat: resolved.latitude,
       lng: resolved.longitude,
       city: resolved.city,
@@ -204,6 +224,31 @@ export const SignUpStep4LocationScreen: React.FC = () => {
         )}
       </View>
 
+      {!fromGoogle && (
+        <>
+          <View style={styles.btnGap} />
+          <Controller
+            control={control}
+            name="phone"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <PhoneInput
+                label="Phone no."
+                required
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.phone?.message}
+                successMessage={
+                  touchedFields.phone && !errors.phone && value.length === 10
+                    ? 'Valid number'
+                    : undefined
+                }
+              />
+            )}
+          />
+        </>
+      )}
+
       <View style={styles.spacer} />
 
       {isBlocked ? (
@@ -215,9 +260,15 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       ) : status === 'success' ? (
         <Button
           title={fromGoogle ? 'Continue' : 'Create Account'}
-          onPress={handleCreateAccount}
+          onPress={
+            fromGoogle
+              ? () => handleCreateAccount()
+              : handleSubmit(values => handleCreateAccount(values.phone))
+          }
           loading={registering || updatingProfile}
-          disabled={registering || updatingProfile}
+          disabled={
+            registering || updatingProfile || (!fromGoogle && !isPhoneValid)
+          }
         />
       ) : (
         <Button

@@ -32,7 +32,7 @@ export type AuthStackParamList = {
   };
   ForgotPasswordPhone: undefined;
   ForgotPasswordOtp: { phone: string };
-  ForgotPasswordReset: { phone: string };
+  ForgotPasswordReset: { resetToken: string };
 };
 
 export type MainTabParamList = {
@@ -93,7 +93,7 @@ export type MainStackParamList = {
   NotificationDetail: { notificationId: string; notification: Notification };
   ForgotPasswordPhone: undefined;
   ForgotPasswordOtp: { phone: string };
-  ForgotPasswordReset: { phone: string };
+  ForgotPasswordReset: { resetToken: string };
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> =
