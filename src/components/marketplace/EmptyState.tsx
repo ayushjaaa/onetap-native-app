@@ -10,6 +10,7 @@ export interface EmptyStateProps {
   actionLabel?: string;
   onActionPress?: () => void;
   style?: ViewStyle;
+  testID?: string;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -19,9 +20,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   actionLabel,
   onActionPress,
   style,
+  testID,
 }) => {
   return (
-    <View style={[styles.container, style]}>
+    <View style={[styles.container, style]} testID={testID}>
       <View style={styles.iconWrap}>
         <Icon size={layout.iconSize.xl} color={colors.textMuted} />
       </View>

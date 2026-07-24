@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Search as SearchIcon,
@@ -20,9 +20,12 @@ import { EmptyState, ListingCard } from '@/components/marketplace';
 import { ShimmerCard } from '@/components/common/Shimmer';
 import {
   useAutocompleteSearchQuery,
+  useGetTrendingSearchesQuery,
   useSearchListingsQuery,
 } from '@/api/productsApi';
 import { formatRelativeShort } from '@/data/listingsStub';
+import { buildMediaUrl } from '@/utils/media';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { colors, fontSize, layout, radius, spacing } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 import type { Listing } from '@/types';
@@ -30,13 +33,6 @@ import type { Listing } from '@/types';
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
 const STUB_RECENT = ['iPhone 13', 'Honda Activa', '2 BHK Andheri', 'Sofa set'];
-const STUB_TRENDING = [
-  'iPhone 15',
-  'Royal Enfield',
-  'Plumber near me',
-  'PS5',
-  'Maid service',
-];
 
 const DEBOUNCE_MS = 300;
 const MIN_QUERY_LENGTH = 2;
@@ -46,7 +42,7 @@ const formatPricePaise = (paise: number): string =>
 
 const toCardData = (listing: Listing) => ({
   id: listing._id,
-  image: listing.photos[0],
+  image: listing.photos[0] ? buildMediaUrl(listing.photos[0]) : undefined,
   title: listing.title,
   price: formatPricePaise(listing.price),
   location: listing.address ?? '',
@@ -54,18 +50,9 @@ const toCardData = (listing: Listing) => ({
   badge: listing.condition,
 });
 
-/** Debounces a fast-changing value so dependent queries don't fire per keystroke. */
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
-
 export const SearchScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const isFocused = useIsFocused();
   const [query, setQuery] = useState('');
   const [recent, setRecent] = useState<string[]>(STUB_RECENT);
   // Distinguishes "still typing, show live suggestions" from "submitted,
@@ -82,11 +69,26 @@ export const SearchScreen: React.FC = () => {
 
   const { data: searchData, isFetching: isSearching } = useSearchListingsQuery(
     { q: submittedQuery ?? '' },
-    { skip: !isSubmitted },
+    // Search stays mounted in the background (bottom-tab navigator), so a
+    // submitted result set can sit stale indefinitely if a listing's
+    // price/etc. changes elsewhere (e.g. an admin approving a seller's edit
+    // request from a separate app) while the buyer is idle on this tab.
+    // Poll only while there's an active submitted query and this tab is
+    // actually focused.
+    {
+      skip: !isSubmitted,
+      pollingInterval: isSubmitted && isFocused ? 20000 : 0,
+    },
   );
   const { data: autocompleteData } = useAutocompleteSearchQuery(
     debouncedQuery,
     { skip: !isQueryReady || isSubmitted },
+  );
+  const { data: trendingSearchesData } = useGetTrendingSearchesQuery();
+  // Backend already sorts by count desc, but re-sort here so the highest-
+  // searched term always renders first regardless of API ordering.
+  const trendingSearches = [...(trendingSearchesData?.trending ?? [])].sort(
+    (a, b) => b.count - a.count,
   );
 
   const suggestions = autocompleteData?.suggestions ?? [];
@@ -111,7 +113,7 @@ export const SearchScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={['top']} testID="search-screen">
       {/* Search header */}
       <View style={styles.header}>
         <View style={styles.searchBox}>
@@ -125,6 +127,7 @@ export const SearchScreen: React.FC = () => {
             style={styles.input}
             autoFocus
             returnKeyType="search"
+            testID="search-input"
           />
           {hasQuery ? (
             <Pressable onPress={() => setQuery('')} hitSlop={spacing.sm}>
@@ -167,32 +170,36 @@ export const SearchScreen: React.FC = () => {
               <ShimmerCard />
               <ShimmerCard />
             </>
-          ) : results.length === 0 ? (
+          ) : !isSubmitted ? null : results.length === 0 ? (
             <EmptyState
+              testID="search-empty-state"
               title={`No results for "${trimmed}"`}
               message="Try a different keyword or check your spelling."
             />
           ) : (
-            results.map(item => {
-              const card = toCardData(item);
-              return (
-                <ListingCard
-                  key={card.id}
-                  image={card.image}
-                  title={card.title}
-                  price={card.price}
-                  location={card.location}
-                  time={card.time}
-                  badge={card.badge}
-                  onPress={() =>
-                    navigation.navigate('ListingDetail', {
-                      listingId: card.id,
-                      listing: item,
-                    })
-                  }
-                />
-              );
-            })
+            <View testID="search-results-list">
+              {results.map(item => {
+                const card = toCardData(item);
+                return (
+                  <ListingCard
+                    key={card.id}
+                    testID={`search-result-${card.id}`}
+                    image={card.image}
+                    title={card.title}
+                    price={card.price}
+                    location={card.location}
+                    time={card.time}
+                    badge={card.badge}
+                    onPress={() =>
+                      navigation.navigate('ListingDetail', {
+                        listingId: card.id,
+                        listing: item,
+                      })
+                    }
+                  />
+                );
+              })}
+            </View>
           )
         ) : (
           <>
@@ -234,23 +241,28 @@ export const SearchScreen: React.FC = () => {
               </View>
             ) : null}
 
-            <View style={styles.section}>
-              <View style={styles.sectionTitleRow}>
-                <TrendingUp size={layout.iconSize.sm} color={colors.warning} />
-                <Text style={styles.sectionTitle}>Trending searches</Text>
+            {trendingSearches.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionTitleRow}>
+                  <TrendingUp
+                    size={layout.iconSize.sm}
+                    color={colors.warning}
+                  />
+                  <Text style={styles.sectionTitle}>Trending searches</Text>
+                </View>
+                <View style={styles.chipWrap}>
+                  {trendingSearches.map(({ query: term }) => (
+                    <Pressable
+                      key={term}
+                      onPress={() => handleSubmit(term)}
+                      style={styles.chip}
+                    >
+                      <Text style={styles.chipText}>{term}</Text>
+                    </Pressable>
+                  ))}
+                </View>
               </View>
-              <View style={styles.chipWrap}>
-                {STUB_TRENDING.map(term => (
-                  <Pressable
-                    key={term}
-                    onPress={() => handleSubmit(term)}
-                    style={styles.chip}
-                  >
-                    <Text style={styles.chipText}>{term}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+            ) : null}
           </>
         )}
       </ScrollView>

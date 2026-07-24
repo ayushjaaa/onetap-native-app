@@ -2,6 +2,12 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { User } from '@/types';
 import { storage } from '@/services/storage';
 import { STORAGE_KEYS } from '@/config/constants';
+import { deriveSellerFlags } from '@/utils/sellerStatus';
+
+const withSellerFlags = (user: User): User => ({
+  ...user,
+  ...deriveSellerFlags(user),
+});
 
 interface AuthState {
   user: User | null;
@@ -27,16 +33,18 @@ const authSlice = createSlice({
       state,
       action: PayloadAction<{ user: User; token: string }>,
     ) => {
-      state.user = action.payload.user;
+      const user = withSellerFlags(action.payload.user);
+      state.user = user;
       state.token = action.payload.token;
       state.isLoggedIn = true;
-      storage.setObject(STORAGE_KEYS.USER, action.payload.user);
+      storage.setObject(STORAGE_KEYS.USER, user);
     },
 
     setUser: (state, action: PayloadAction<User>) => {
-      state.user = action.payload;
+      const user = withSellerFlags(action.payload);
+      state.user = user;
       state.isLoggedIn = true;
-      storage.setObject(STORAGE_KEYS.USER, action.payload);
+      storage.setObject(STORAGE_KEYS.USER, user);
     },
 
     setHydrated: (
@@ -47,9 +55,12 @@ const authSlice = createSlice({
         hasOnboarded: boolean;
       }>,
     ) => {
-      state.user = action.payload.user;
+      const user = action.payload.user
+        ? withSellerFlags(action.payload.user)
+        : null;
+      state.user = user;
       state.token = action.payload.token;
-      state.isLoggedIn = !!action.payload.user && !!action.payload.token;
+      state.isLoggedIn = !!user && !!action.payload.token;
       state.hasOnboarded = action.payload.hasOnboarded;
       state.isHydrated = true;
     },

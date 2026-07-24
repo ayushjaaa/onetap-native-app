@@ -1,5 +1,12 @@
-import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +23,7 @@ import { formatINR } from '@/data/packagesCatalog';
 import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
 import { useGetMyInterestsAsBuyerQuery } from '@/api/transactionsApi';
 import { useGetListingByIdQuery } from '@/api/productsApi';
+import { buildMediaUrl } from '@/utils/media';
 import type { Interest, InterestStatus } from '@/types';
 import { colors, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -154,6 +162,7 @@ const PurchaseCard: React.FC<PurchaseCardProps> = ({ interest, onPress }) => {
   // could since then have moved to Rejected/Expired/Deleted by the seller,
   // so `listing` may be undefined for the 'lost' case and falls back below.
   const { data: listing } = useGetListingByIdQuery(interest.listingId);
+  const [imageFailed, setImageFailed] = useState(false);
 
   const isDim =
     interest.status === 'rejected' || interest.status === 'completed';
@@ -165,6 +174,9 @@ const PurchaseCard: React.FC<PurchaseCardProps> = ({ interest, onPress }) => {
   const timestampLabel = formatRelativeShort(interest.createdAt);
   const title = listing?.title ?? 'Listing';
   const priceInPaise = listing?.price;
+  const imageUrl = listing?.photos?.[0]
+    ? buildMediaUrl(listing.photos[0])
+    : undefined;
 
   return (
     <Pressable
@@ -172,13 +184,21 @@ const PurchaseCard: React.FC<PurchaseCardProps> = ({ interest, onPress }) => {
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTopRow}>
-        <View
-          style={[
-            styles.thumb,
-            { backgroundColor: stubThumbColour(interest.listingId) },
-            isDim && styles.thumbDim,
-          ]}
-        />
+        {imageUrl && !imageFailed ? (
+          <Image
+            source={{ uri: imageUrl }}
+            style={[styles.thumb, isDim && styles.thumbDim]}
+            onError={() => setImageFailed(true)}
+          />
+        ) : (
+          <View
+            style={[
+              styles.thumb,
+              { backgroundColor: stubThumbColour(interest.listingId) },
+              isDim && styles.thumbDim,
+            ]}
+          />
+        )}
         <View style={styles.cardText}>
           <Text
             style={[styles.cardTitle, isDim && styles.cardTitleDim]}

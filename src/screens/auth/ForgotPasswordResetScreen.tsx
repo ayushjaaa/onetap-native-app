@@ -34,10 +34,9 @@ type Route = AuthScreenProps<'ForgotPasswordReset'>['route'];
 export const ForgotPasswordResetScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { resetToken } = route.params;
+  const { token } = route.params;
   const toast = useToast();
   const isLoggedIn = useAppSelector(state => state.auth.isLoggedIn);
-
   const [resetPassword, { isLoading }] = useResetPasswordMutation();
 
   const {
@@ -55,10 +54,7 @@ export const ForgotPasswordResetScreen: React.FC = () => {
 
   const onSubmit = async (values: ResetPasswordFormData) => {
     try {
-      await resetPassword({
-        token: resetToken,
-        newPassword: values.password,
-      }).unwrap();
+      await resetPassword({ token, newPassword: values.password }).unwrap();
 
       if (isLoggedIn) {
         // Logged-in user (came from Profile) → return to Tabs
@@ -87,10 +83,7 @@ export const ForgotPasswordResetScreen: React.FC = () => {
       }
     } catch (err) {
       const mapped = mapApiError(err as never);
-      toast.error({
-        title: 'Could not reset password',
-        message: mapped.message,
-      });
+      toast.error({ title: 'Reset failed', message: mapped.message });
     }
   };
 

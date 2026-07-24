@@ -98,7 +98,9 @@ export const WalletReceiptSheet: React.FC<WalletReceiptSheetProps> = ({
                       : formatPaise(transaction.amount)}
                   </Text>
                   <Text style={styles.reason}>
-                    {transaction.description || KIND_LABEL[transaction.kind]}
+                    {transaction.description ||
+                      KIND_LABEL[transaction.kind] ||
+                      transaction.kind}
                   </Text>
 
                   <View style={styles.divider} />
@@ -110,11 +112,6 @@ export const WalletReceiptSheet: React.FC<WalletReceiptSheetProps> = ({
                   <ReceiptRow
                     label="Type"
                     value={KIND_LABEL[transaction.kind] ?? transaction.kind}
-                  />
-                  <ReceiptRow
-                    label="Reference ID"
-                    value={transaction._id}
-                    monospace
                   />
 
                   {paymentOrder ? (

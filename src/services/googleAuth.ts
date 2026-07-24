@@ -3,6 +3,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import { env } from '@/config/env';
+import { Sentry } from '@/config/sentry';
 
 export type GoogleErrorCode =
   | 'CANCELLED'
@@ -95,7 +96,17 @@ const mapErrorToResult = (err: unknown): GoogleSignInResult => {
       message: 'Network issue. Check your internet.',
     };
   }
-  return { ok: false, code: 'UNKNOWN', message };
+  // Any other native SDK exception — never surface its raw message (can be
+  // a stack-trace-like string or internal error code), same reasoning as
+  // the Razorpay JSON-blob guard in PaymentResultScreen.tsx.
+  if (__DEV__) {
+    console.log('[googleAuth] unrecognized sign-in error:', message);
+  }
+  return {
+    ok: false,
+    code: 'UNKNOWN',
+    message: 'Google sign-in failed. Please try again.',
+  };
 };
 
 const signIn = async (): Promise<GoogleSignInResult> => {
@@ -165,16 +176,19 @@ const signIn = async (): Promise<GoogleSignInResult> => {
 const signOut = async (): Promise<void> => {
   try {
     await GoogleSignin.signOut();
-  } catch {
-    // best-effort
+  } catch (err) {
+    // best-effort — local logout proceeds regardless — but still report so
+    // a recurring native fault isn't invisible.
+    Sentry.captureException(err);
   }
 };
 
 const revokeAccess = async (): Promise<void> => {
   try {
     await GoogleSignin.revokeAccess();
-  } catch {
-    // best-effort
+  } catch (err) {
+    // best-effort — see signOut() above.
+    Sentry.captureException(err);
   }
 };
 

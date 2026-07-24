@@ -84,6 +84,15 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // Required for Detox's Espresso-based Android driver — without this the
+        // androidTest APK falls back to the legacy android.test.InstrumentationTestRunner,
+        // which Detox can't drive (am instrument fails with "Unable to find instrumentation info").
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // com.wix:detox ships two flavors ('full' has the Espresso/Detox.runTests API,
+        // 'coreNative' is a stripped-down variant) — without picking one, Gradle
+        // silently resolves an ambiguous/incomplete variant that's missing the
+        // com.wix.detox.Detox / DetoxConfig classes DetoxTest.kt needs.
+        missingDimensionStrategy "detox", "full"
     }
     signingConfigs {
         debug {
@@ -104,7 +113,9 @@ android {
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-            manifestPlaceholders = [usesCleartextTraffic: "false"]
+            // Backend is plain http:// (no TLS yet), so Android's default
+            // release-build cleartext block would fail every network call.
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
     }
 }
@@ -126,4 +137,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    androidTestImplementation('com.wix:detox:0.1.1')
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test:rules:1.5.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
 }

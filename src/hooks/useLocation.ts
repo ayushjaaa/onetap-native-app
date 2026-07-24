@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Platform } from 'react-native';
 import {
   locationService,
   type ResolvedLocation,
@@ -39,10 +40,23 @@ const errorMessageFor = (
 } => {
   switch (code) {
     case 1: // PERMISSION_DENIED
-      return {
-        status: 'permission_denied',
-        message: 'Location permission denied.',
-      };
+      // requestLocationPermission() always reports 'granted' on iOS (the
+      // library-level prompt handles it), so this hook's own
+      // permission_blocked branch above is unreachable there — iOS-side
+      // denial only ever surfaces here, as a getCurrentPosition failure.
+      // Without this, a permanently-denied user is stuck retrying forever
+      // with no "Open Settings" affordance (which only permission_blocked
+      // renders).
+      return Platform.OS === 'ios'
+        ? {
+            status: 'permission_blocked',
+            message:
+              'Location permission is blocked. Please enable it from Settings.',
+          }
+        : {
+            status: 'permission_denied',
+            message: 'Location permission denied.',
+          };
     case 2: // POSITION_UNAVAILABLE
       return {
         status: 'gps_off',

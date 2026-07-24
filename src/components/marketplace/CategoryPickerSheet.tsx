@@ -51,8 +51,10 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
   const [leafId, setLeafId] = useState<string | null>(null);
   const [openLevel, setOpenLevel] = useState<DrillLevel>('top');
 
-  // Re-seed every time the sheet opens, so reopening with a different
-  // initialCategoryId rehydrates the drill state correctly.
+  // Re-seed only when the sheet opens or a different initialCategoryId is
+  // passed in. Deliberately excludes `categoryTree` from the deps: RTK Query
+  // hands back a new array reference on every refetch, and re-running this
+  // while the sheet is open would wipe an in-progress drill-down selection.
   useEffect(() => {
     if (!visible) return;
     setTopId(null);
@@ -80,7 +82,8 @@ export const CategoryPickerSheet: React.FC<CategoryPickerSheetProps> = ({
         }
       }
     }
-  }, [visible, initialCategoryId, categoryTree]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialCategoryId]);
 
   const topNode = topId ? categoryTree.find(n => n.id === topId) ?? null : null;
   const subNode = topNode?.children?.find(n => n.id === subId) ?? null;

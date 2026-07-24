@@ -5,7 +5,7 @@ import { Input } from '@/components/common/Input';
 import { colors } from '@/theme';
 
 interface PasswordInputProps {
-  value: string;  
+  value: string;
   onChangeText: (text: string) => void;
   onBlur?: () => void;
   error?: string;
@@ -13,6 +13,7 @@ interface PasswordInputProps {
   label?: string;
   placeholder?: string;
   required?: boolean;
+  testID?: string;
 }
 
 export const PasswordInput = forwardRef<TextInput, PasswordInputProps>(
@@ -26,6 +27,7 @@ export const PasswordInput = forwardRef<TextInput, PasswordInputProps>(
       label,
       placeholder = 'Enter your password',
       required = false,
+      testID,
     },
     ref,
   ) => {
@@ -45,6 +47,7 @@ export const PasswordInput = forwardRef<TextInput, PasswordInputProps>(
     return (
       <Input
         ref={ref}
+        testID={testID}
         label={label}
         required={required}
         value={value}

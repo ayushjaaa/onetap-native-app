@@ -1,4 +1,6 @@
+import type { AnyAction, ThunkDispatch } from '@reduxjs/toolkit';
 import { baseApi } from './baseApi';
+import { setUser } from '@/store/authSlice';
 import type {
   RegisterRequest,
   RegisterResponse,
@@ -12,10 +14,10 @@ import type {
   ResendOtpResponse,
   VerifyOtpRequest,
   VerifyOtpResponse,
-  SendForgotPasswordOtpRequest,
-  SendForgotPasswordOtpResponse,
-  VerifyForgotPasswordOtpRequest,
-  VerifyForgotPasswordOtpResponse,
+  ForgotPasswordSendOtpRequest,
+  ForgotPasswordSendOtpResponse,
+  ForgotPasswordVerifyOtpRequest,
+  ForgotPasswordVerifyOtpResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
   GoogleSignInRequest,
@@ -25,6 +27,27 @@ import type {
   SubmitIndividualSellerProfileRequest,
   SubmitIndividualSellerProfileResponse,
 } from '@/types';
+
+// RTK Query only auto-refetches queries that have an active subscriber —
+// `getMe` has none (it's only ever `.initiate()`-d once, in useBootstrap), so
+// `invalidatesTags: ['User']` alone never updates `state.auth.user` after a
+// seller mutation. Force the refetch here and push the result into Redux so
+// `isSellerApproved`/`aadhaarVerified` (derived in authSlice) stay current
+// within the same session, not just after the next app relaunch.
+const refreshUserAfter = async (
+  queryFulfilled: Promise<unknown>,
+  dispatch: ThunkDispatch<unknown, unknown, AnyAction>,
+): Promise<void> => {
+  try {
+    await queryFulfilled;
+    const result = await dispatch(
+      authApi.endpoints.getMe.initiate(undefined, { forceRefetch: true }),
+    ).unwrap();
+    dispatch(setUser(result.data.user));
+  } catch {
+    // Mutation itself failed — caller already surfaces that error to the user.
+  }
+};
 
 export const authApi = baseApi.injectEndpoints({
   endpoints: builder => ({
@@ -72,11 +95,16 @@ export const authApi = baseApi.injectEndpoints({
     }),
 
     sendOtp: builder.mutation<SendOtpResponse, SendOtpRequest>({
-      query: body => ({
-        url: '/auth/phone/send-otp',
-        method: 'POST',
-        body,
-      }),
+      query: body => {
+        if (__DEV__) {
+          console.log('[sendOtp] request body:', body);
+        }
+        return {
+          url: '/auth/phone/send-otp',
+          method: 'POST',
+          body,
+        };
+      },
     }),
 
     resendOtp: builder.mutation<ResendOtpResponse, void>({
@@ -94,9 +122,9 @@ export const authApi = baseApi.injectEndpoints({
       }),
     }),
 
-    sendForgotPasswordOtp: builder.mutation<
-      SendForgotPasswordOtpResponse,
-      SendForgotPasswordOtpRequest
+    forgotPasswordSendOtp: builder.mutation<
+      ForgotPasswordSendOtpResponse,
+      ForgotPasswordSendOtpRequest
     >({
       query: body => ({
         url: '/auth/forgot-password/send-otp',
@@ -105,9 +133,9 @@ export const authApi = baseApi.injectEndpoints({
       }),
     }),
 
-    verifyForgotPasswordOtp: builder.mutation<
-      VerifyForgotPasswordOtpResponse,
-      VerifyForgotPasswordOtpRequest
+    forgotPasswordVerifyOtp: builder.mutation<
+      ForgotPasswordVerifyOtpResponse,
+      ForgotPasswordVerifyOtpRequest
     >({
       query: body => ({
         url: '/auth/forgot-password/verify-otp',
@@ -137,6 +165,9 @@ export const authApi = baseApi.injectEndpoints({
         body,
       }),
       invalidatesTags: ['User'],
+      onQueryStarted: async (_arg, { dispatch, queryFulfilled }) => {
+        await refreshUserAfter(queryFulfilled, dispatch);
+      },
     }),
 
     submitIndividualSellerProfile: builder.mutation<
@@ -149,6 +180,9 @@ export const authApi = baseApi.injectEndpoints({
         body,
       }),
       invalidatesTags: ['User'],
+      onQueryStarted: async (_arg, { dispatch, queryFulfilled }) => {
+        await refreshUserAfter(queryFulfilled, dispatch);
+      },
     }),
   }),
   overrideExisting: false,
@@ -164,8 +198,8 @@ export const {
   useSendOtpMutation,
   useResendOtpMutation,
   useVerifyOtpMutation,
-  useSendForgotPasswordOtpMutation,
-  useVerifyForgotPasswordOtpMutation,
+  useForgotPasswordSendOtpMutation,
+  useForgotPasswordVerifyOtpMutation,
   useResetPasswordMutation,
   useSetSellerTypeMutation,
   useSubmitIndividualSellerProfileMutation,

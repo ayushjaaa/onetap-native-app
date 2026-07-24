@@ -30,6 +30,27 @@ export const requestLocationPermission =
     }
   };
 
-export const openAppSettings = (): Promise<void> => {
-  return Linking.openSettings();
+// Both wrapped end-to-end (not just the Android intent branch) — callers
+// pass these straight into Alert button onPress / Button onPress, which
+// have no rejection handling of their own, so a failed settings-deep-link
+// (e.g. no Settings activity resolvable on some emulators/custom ROMs)
+// must fail silently here rather than becoming an unhandled rejection.
+export const openAppSettings = async (): Promise<void> => {
+  try {
+    await Linking.openSettings();
+  } catch {
+    // no-op — nothing further we can do if the OS won't open Settings
+  }
+};
+
+export const openLocationSettings = async (): Promise<void> => {
+  if (Platform.OS === 'android') {
+    try {
+      await Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+      return;
+    } catch {
+      // fall through to app settings below
+    }
+  }
+  await openAppSettings();
 };

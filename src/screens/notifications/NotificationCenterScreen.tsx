@@ -25,6 +25,7 @@ import {
 import { formatRelativeShort } from '@/data/listingsStub';
 import type { Notification } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
+import { Sentry } from '@/config/sentry';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'Notifications'>;
@@ -72,6 +73,8 @@ export const NotificationCenterScreen: React.FC = () => {
   const [markAllRead] = useMarkAllNotificationsReadMutation();
   const [markRead] = useMarkNotificationReadMutation();
 
+  // Show every notification, read or not — marking one read (on tap) must
+  // not make it vanish from the list, or a user could never revisit it.
   const notifications = data?.notifications ?? EMPTY_NOTIFICATIONS;
   const unreadCount = useMemo(
     () => notifications.filter(n => n.status !== 'read').length,
@@ -79,11 +82,19 @@ export const NotificationCenterScreen: React.FC = () => {
   );
 
   const handleMarkAllRead = () => {
-    void markAllRead();
+    // Fire-and-forget by design — not user-blocking — but still report a
+    // failure instead of letting it vanish silently.
+    markAllRead()
+      .unwrap()
+      .catch((err: unknown) => Sentry.captureException(err));
   };
 
   const handleRowTap = (n: Notification) => {
-    if (n.status !== 'read') void markRead(n._id);
+    if (n.status !== 'read') {
+      markRead(n._id)
+        .unwrap()
+        .catch((err: unknown) => Sentry.captureException(err));
+    }
     routeFromNotification(n, navigation);
   };
 
@@ -127,7 +138,7 @@ export const NotificationCenterScreen: React.FC = () => {
           <EmptyState
             icon={Bell}
             title="All quiet for now"
-            message="Aapke saare alerts yahaan dikhayi denge."
+            message="All your alerts will show up here."
           />
         ) : (
           notifications.map(n => (
@@ -153,16 +164,12 @@ interface RowProps {
 const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
   const Icon = TYPE_ICON[n.type] ?? Bell;
   const tint = TYPE_COLOUR[n.type] ?? colors.textMuted;
-  const isRead = n.status === 'read';
+  const isUnread = n.status !== 'read';
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        isRead && styles.rowRead,
-        pressed && styles.rowPressed,
-      ]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
       <View
         style={[
@@ -177,12 +184,12 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
       <View style={styles.rowBody}>
         <View style={styles.rowTopLine}>
           <Text
-            style={[styles.rowTitle, !isRead && styles.rowTitleUnread]}
+            style={[styles.rowTitle, isUnread && styles.rowTitleUnread]}
             numberOfLines={2}
           >
             {n.title}
           </Text>
-          <Text style={[styles.rowTime, !isRead && styles.rowTimeUnread]}>
+          <Text style={[styles.rowTime, isUnread && styles.rowTimeUnread]}>
             {formatRelativeShort(n.createdAt)}
           </Text>
         </View>
@@ -193,7 +200,7 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
         ) : null}
       </View>
 
-      {!isRead ? <View style={styles.unreadDot} /> : null}
+      {isUnread ? <View style={styles.unreadDot} /> : null}
     </Pressable>
   );
 };
@@ -302,9 +309,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.primaryAlpha15,
-  },
-  rowRead: {
-    borderColor: colors.borderSubtle,
   },
   rowPressed: {
     opacity: 0.92,

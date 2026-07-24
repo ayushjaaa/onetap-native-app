@@ -1,5 +1,11 @@
 jest.mock('@/services/secureStorage');
 
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 import React from 'react';
 import { fireEvent, waitFor } from '@testing-library/react-native';
 import {
@@ -7,6 +13,7 @@ import {
   renderWithProviders,
 } from '@/test-utils/renderWithProviders';
 import { CategoryBrowseScreen } from '@/screens/marketplace/CategoryBrowseScreen';
+import { setUser } from '@/store/authSlice';
 import { setLocation } from '@/store/locationSlice';
 
 const originalFetch = globalThis.fetch;
@@ -257,5 +264,91 @@ describe('CategoryBrowseScreen', () => {
         ),
       ).toBe(true);
     });
+  });
+});
+
+describe('CategoryBrowseScreen — empty-state "Post an Ad" gating', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    jest.clearAllMocks();
+  });
+
+  it('routes a mid-onboarding seller to IndividualOnboarding, not ListProduct', async () => {
+    mockCategoriesAndFeedByUrl(
+      [{ id: 'vehicles', name: 'Vehicles', children: [] }],
+      [],
+    );
+
+    const store = createTestStore();
+    store.dispatch(
+      setLocation({
+        latitude: 19.1,
+        longitude: 72.8,
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        address: null,
+        pincode: null,
+      }),
+    );
+    store.dispatch(
+      setUser({
+        id: 'u1',
+        email: 'seller@test.com',
+        name: 'Test Seller',
+        role: 'user',
+        sellerType: 'individual',
+      } as never),
+    );
+
+    const { getByText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <CategoryBrowseScreen route={routeFor('vehicles', 'Vehicles')} />,
+      { store },
+    );
+
+    await waitFor(() => expect(getByText('Post an Ad')).toBeTruthy());
+    fireEvent.press(getByText('Post an Ad'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('IndividualOnboarding');
+    expect(mockNavigate).not.toHaveBeenCalledWith('ListProduct');
+  });
+
+  it('routes an approved seller straight to ListProduct', async () => {
+    mockCategoriesAndFeedByUrl(
+      [{ id: 'vehicles', name: 'Vehicles', children: [] }],
+      [],
+    );
+
+    const store = createTestStore();
+    store.dispatch(
+      setLocation({
+        latitude: 19.1,
+        longitude: 72.8,
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        address: null,
+        pincode: null,
+      }),
+    );
+    store.dispatch(
+      setUser({
+        id: 'u2',
+        email: 'approved@test.com',
+        name: 'Approved Seller',
+        role: 'user',
+        permissions: ['identity:kyc_verified'],
+      } as never),
+    );
+
+    const { getByText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <CategoryBrowseScreen route={routeFor('vehicles', 'Vehicles')} />,
+      { store },
+    );
+
+    await waitFor(() => expect(getByText('Post an Ad')).toBeTruthy());
+    fireEvent.press(getByText('Post an Ad'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('ListProduct');
   });
 });

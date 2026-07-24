@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      androidx.test:core's own manifest doesn't declare android:exported on these
+      bootstrap activities, which Android 12+ (targetSdk 31+) requires whenever an
+      intent-filter is present. Override them here so the androidTest manifest merge
+      succeeds — see https://developer.android.com/guide/topics/manifest/activity-element#exported
+    -->
+    <application>
+        <activity
+            android:name="androidx.test.core.app.InstrumentationActivityInvoker$BootstrapActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+        <activity
+            android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+        <activity
+            android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyFloatingActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

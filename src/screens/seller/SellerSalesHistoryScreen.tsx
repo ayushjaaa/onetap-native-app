@@ -1,5 +1,12 @@
-import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -15,6 +22,7 @@ import { formatINR } from '@/data/packagesCatalog';
 import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
 import { useGetMyTransactionsQuery } from '@/api/transactionsApi';
 import { useGetListingByIdQuery } from '@/api/productsApi';
+import { buildMediaUrl } from '@/utils/media';
 import { useToast } from '@/hooks/useToast';
 import type { Transaction } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
@@ -177,9 +185,13 @@ const SaleCard: React.FC<SaleCardProps> = ({
   // publicly readable (GET /listings/:id allows Live|Sold), so this never
   // 404s for a real sale.
   const { data: listing } = useGetListingByIdQuery(sale.listingId);
+  const [imageFailed, setImageFailed] = useState(false);
 
   const soldRelative = formatRelativeShort(sale.completedAt);
   const title = listing?.title ?? 'Listing';
+  const imageUrl = listing?.photos?.[0]
+    ? buildMediaUrl(listing.photos[0])
+    : undefined;
 
   return (
     <Pressable
@@ -187,12 +199,20 @@ const SaleCard: React.FC<SaleCardProps> = ({
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTopRow}>
-        <View
-          style={[
-            styles.thumb,
-            { backgroundColor: stubThumbColour(sale.listingId) },
-          ]}
-        />
+        {imageUrl && !imageFailed ? (
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.thumb}
+            onError={() => setImageFailed(true)}
+          />
+        ) : (
+          <View
+            style={[
+              styles.thumb,
+              { backgroundColor: stubThumbColour(sale.listingId) },
+            ]}
+          />
+        )}
         <View style={styles.cardText}>
           <Text style={styles.cardTitle} numberOfLines={2}>
             {title}

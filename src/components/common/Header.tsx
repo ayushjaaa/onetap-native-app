@@ -24,6 +24,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Pressable
             onPress={onBack}
             hitSlop={12}
+            testID="header-back-button"
             style={({ pressed }) => [
               styles.backButton,
               pressed && styles.backButtonPressed,

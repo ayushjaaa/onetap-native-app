@@ -18,6 +18,7 @@ interface ScreenProps {
   style?: ViewStyle;
   contentContainerStyle?: ViewStyle;
   keyboardAvoiding?: boolean;
+  testID?: string;
 }
 
 export const Screen: React.FC<ScreenProps> = ({
@@ -27,6 +28,7 @@ export const Screen: React.FC<ScreenProps> = ({
   style,
   contentContainerStyle,
   keyboardAvoiding = true,
+  testID,
 }) => {
   const padding = noPadding ? 0 : spacing.lg;
 
@@ -47,7 +49,11 @@ export const Screen: React.FC<ScreenProps> = ({
   );
 
   return (
-    <SafeAreaView style={[styles.safe, style]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      testID={testID}
+      style={[styles.safe, style]}
+      edges={['top', 'bottom']}
+    >
       <StatusBar
         barStyle="light-content"
         backgroundColor={colors.background}

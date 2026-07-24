@@ -187,7 +187,7 @@ describe.skip('ListAProductScreen', () => {
     ]);
 
     // No location dispatched — the screen's own useLocation fallback must
-    // fetch it (the __mocks__/@react-native-community/geolocation.js mock
+    // fetch it (the __mocks__/react-native-geolocation-service.js mock
     // resolves to a fixed lat/lng automatically).
     const { getByPlaceholderText, getByText, getByTestId } =
       await renderWithProviders(<ListAProductScreen />, {

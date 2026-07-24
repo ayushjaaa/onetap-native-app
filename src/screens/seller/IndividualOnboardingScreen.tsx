@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -26,6 +26,7 @@ import { useAppSelector } from '@/hooks/useAppSelector';
 import { useToast } from '@/hooks/useToast';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { useSubmitIndividualSellerProfileMutation } from '@/api/authApi';
+import { mapApiError } from '@/utils/errorMapper';
 import { buildMediaUrl } from '@/utils/media';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -65,15 +66,37 @@ export const IndividualOnboardingScreen: React.FC = () => {
   const { pick: pickPhoto, isUploading: isUploadingPhoto } =
     useImageUpload('avatar');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [submitProfile, { isLoading: isSubmitting }] =
-    useSubmitIndividualSellerProfileMutation();
+  // Only show the required-field error border once the user has actually
+  // interacted with these — otherwise both render red the instant the
+  // screen mounts, before anyone's touched anything.
+  const [photoTouched, setPhotoTouched] = useState(false);
+  const [categoriesTouched, setCategoriesTouched] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
+  const [submitIndividualSellerProfile] =
+    useSubmitIndividualSellerProfileMutation();
+
+  // Defensive: don't re-show the profile form to someone who already
+  // submitted it (e.g. hardware-back from PackageSelection) — resume
+  // further along instead of letting them resubmit. Skipped while the
+  // success modal from *this* submit is up — the background refetch this
+  // same submit triggers must not yank the user off their own success
+  // screen mid-read.
+  useEffect(() => {
+    if (user?.sellerProfileSubmitted && !didSucceed) {
+      navigation.replace('BecomeSellerIntro');
+    }
+  }, [user?.sellerProfileSubmitted, didSucceed, navigation]);
 
   const trimmedName = name.trim();
+  const trimmedBio = bio.trim();
   const nameValid =
     trimmedName.length >= NAME_MIN && trimmedName.length <= NAME_MAX;
-  const bioValid = bio.length <= BIO_MAX;
-  const canSubmit = nameValid && bioValid && !isSubmitting;
+  const bioValid = trimmedBio.length > 0 && bio.length <= BIO_MAX;
+  const photoValid = !!photoUri;
+  const categoriesValid = categories.length > 0;
+  const canSubmit =
+    nameValid && bioValid && photoValid && categoriesValid && !isSubmitting;
 
   const availableCategories = useMemo(
     () => SUGGESTED_CATEGORIES.filter(c => !categories.includes(c)),
@@ -87,25 +110,30 @@ export const IndividualOnboardingScreen: React.FC = () => {
   };
 
   const handlePhotoPress = async () => {
-    const uploadedUrl = await pickPhoto();
+    setPhotoTouched(true);
+    const [uploadedUrl] = await pickPhoto();
     if (uploadedUrl) setPhotoUri(uploadedUrl);
   };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    setIsSubmitting(true);
     try {
-      await submitProfile({
+      await submitIndividualSellerProfile({
         displayName: trimmedName,
-        bio: bio.trim() || undefined,
-        photoUrl: photoUri ?? undefined,
-        categories: categories.length > 0 ? categories : undefined,
+        bio: trimmedBio,
+        photoUrl: photoUri as string,
+        categories,
       }).unwrap();
       setDidSucceed(true);
-    } catch {
+    } catch (err) {
+      const mapped = mapApiError(err as never);
       toast.error({
-        title: "Couldn't submit your application",
-        message: 'Network issue — try again in a moment.',
+        title: "Couldn't activate seller account",
+        message: mapped.message,
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -120,7 +148,11 @@ export const IndividualOnboardingScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      testID="individual-onboarding-screen"
+      style={styles.safe}
+      edges={['top']}
+    >
       <View style={styles.header}>
         <Pressable
           onPress={navigation.goBack}
@@ -152,7 +184,12 @@ export const IndividualOnboardingScreen: React.FC = () => {
             accessibilityRole="button"
             accessibilityLabel="Upload profile photo"
           >
-            <View style={styles.avatarCircle}>
+            <View
+              style={[
+                styles.avatarCircle,
+                !photoValid && photoTouched && styles.avatarCircleError,
+              ]}
+            >
               {isUploadingPhoto ? (
                 <ActivityIndicator size="small" color={colors.primary} />
               ) : photoUri ? (
@@ -165,7 +202,7 @@ export const IndividualOnboardingScreen: React.FC = () => {
               )}
             </View>
             <Text style={styles.avatarHint}>
-              {photoUri ? 'Change photo' : 'Add profile photo (optional)'}
+              {photoUri ? 'Change photo' : 'Add profile photo *'}
             </Text>
           </Pressable>
 
@@ -188,15 +225,17 @@ export const IndividualOnboardingScreen: React.FC = () => {
           </View>
 
           {/* Bio */}
-          <Text style={[styles.label, styles.labelSpaced]}>
-            Short bio (optional)
-          </Text>
+          <Text style={[styles.label, styles.labelSpaced]}>Short bio *</Text>
           <TextInput
             value={bio}
             onChangeText={setBio}
             placeholder="What do you sell? Where? Anything buyers should know."
             placeholderTextColor={colors.textMuted}
-            style={[styles.input, styles.inputMultiline]}
+            style={[
+              styles.input,
+              styles.inputMultiline,
+              !bioValid && !!bio && styles.inputError,
+            ]}
             maxLength={BIO_MAX}
             multiline
             editable={!isSubmitting}
@@ -210,9 +249,14 @@ export const IndividualOnboardingScreen: React.FC = () => {
 
           {/* Categories */}
           <Text style={[styles.label, styles.labelSpaced]}>
-            What do you sell? (optional)
+            What do you sell? *
           </Text>
-          <View style={styles.chipsWrap}>
+          <View
+            style={[
+              styles.chipsWrap,
+              !categoriesValid && categoriesTouched && styles.chipsWrapError,
+            ]}
+          >
             {categories.map(cat => (
               <Pressable
                 key={cat}
@@ -224,7 +268,10 @@ export const IndividualOnboardingScreen: React.FC = () => {
               </Pressable>
             ))}
             <Pressable
-              onPress={() => setPickerOpen(true)}
+              onPress={() => {
+                setCategoriesTouched(true);
+                setPickerOpen(true);
+              }}
               style={styles.chipAdd}
               disabled={availableCategories.length === 0}
             >
@@ -239,6 +286,7 @@ export const IndividualOnboardingScreen: React.FC = () => {
 
       <View style={styles.bottomBar}>
         <Pressable
+          testID="individual-onboarding-submit-button"
           onPress={handleSubmit}
           disabled={!canSubmit}
           style={({ pressed }) => [
@@ -310,9 +358,7 @@ export const IndividualOnboardingScreen: React.FC = () => {
             </View>
             <Text style={styles.successTitle}>Application submitted! 🎉</Text>
             <Text style={styles.successBody}>
-              Hamari team aapki application review karegi. Tab tak, apna pehla
-              package pick kar lijiye — products list karna admin approval ke
-              baad shuru ho sakta hai.
+              Pick a package to post your first product.
             </Text>
           </View>
 
@@ -397,6 +443,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  avatarCircleError: {
+    borderColor: colors.borderError,
+  },
   avatarPhoto: {
     width: '100%',
     height: '100%',
@@ -453,6 +502,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  chipsWrapError: {
+    borderWidth: 1,
+    borderColor: colors.borderError,
+    borderRadius: radius.lg,
+    padding: spacing.sm,
   },
   chipSelected: {
     flexDirection: 'row',

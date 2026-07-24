@@ -36,7 +36,7 @@ type Route = AuthScreenProps<'Otp'>['route'];
 export const OtpScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { phone, user, token, fromGoogle, needsLocation } = route.params;
+  const { phone, user, fromGoogle, needsLocation } = route.params;
   const toast = useToast();
   const dispatch = useAppDispatch();
 
@@ -51,23 +51,25 @@ export const OtpScreen: React.FC = () => {
   const [verifyOtp] = useVerifyOtpMutation();
   const [updateProfile] = useUpdateProfileMutation();
 
-  // Clear error as user retypes
-  useEffect(() => {
-    if (hasError && otp.length < OTP_LENGTH) {
-      setHasError(false);
-    }
-  }, [otp, hasError]);
+  const blocked = attempts >= OTP_MAX_ATTEMPTS;
+
+  // User-driven edits clear the error highlight; a failed-verify reset of
+  // `otp` itself must NOT clear it, or the red boxes never stay visible.
+  const handleOtpChange = (text: string) => {
+    setOtp(text);
+    if (hasError) setHasError(false);
+  };
 
   // Auto-submit once all digits are entered
   useEffect(() => {
-    if (otp.length === OTP_LENGTH && !isProcessing) {
+    if (otp.length === OTP_LENGTH && !isProcessing && !blocked) {
       handleVerify();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otp]);
+  }, [otp, blocked]);
 
   const handleVerify = async () => {
-    if (isProcessing) return;
+    if (isProcessing || blocked) return;
     setIsProcessing(true);
 
     try {
@@ -76,18 +78,19 @@ export const OtpScreen: React.FC = () => {
         await verifyOtp({ code: otp }).unwrap();
       }
 
-      // 2. Use user + token already received from previous step
-      //    (login API for manual flow, /auth/google for Google flow)
+      // 2. Token was already persisted to Keychain right after login/Google
+      //    sign-in — read it fresh here rather than threading the raw JWT
+      //    through nav params across three screens.
+      const token = await secureStorage.getToken();
       if (!user || !token) {
         throw new Error('Missing session — please sign in again');
       }
 
-      // 3. Google new user who also needs location:
-      //    Save token + phone now so authenticated APIs work, but defer
-      //    setCredentials so RootNavigator stays on auth stack until the
-      //    location screen completes onboarding.
+      // 3. Google new user who also needs location: update phone now so
+      //    authenticated APIs work, but defer setCredentials so
+      //    RootNavigator stays on auth stack until the location screen
+      //    completes onboarding.
       if (fromGoogle && needsLocation) {
-        await secureStorage.saveToken(token);
         try {
           await updateProfile({
             phone: formatPhoneWithPrefix(phone),
@@ -98,19 +101,28 @@ export const OtpScreen: React.FC = () => {
         }
         navigation.navigate('SignUpLocation', {
           fromGoogle: true,
-          user: { ...user, phone: formatPhoneWithPrefix(phone) },
-          token,
+          user: {
+            ...user,
+            phone: formatPhoneWithPrefix(phone),
+            phoneVerified: true,
+          },
         });
         return;
       }
 
-      // 4. Persist token to Keychain
-      await secureStorage.saveToken(token);
+      // 4. Update Redux + MMKV → triggers RootNavigator switch to Home. Verify-otp
+      // just succeeded server-side, but `user` here is the stale object carried
+      // through nav params from before verification — patch phoneVerified locally
+      // so RootNavigator's gate (state.auth.user?.phoneVerified) flips immediately
+      // instead of waiting for the next /auth/me refetch.
+      dispatch(
+        setCredentials({ user: { ...user, phoneVerified: true }, token }),
+      );
+      // Verification itself is done — don't keep showing "Verifying…" while
+      // the best-effort profile update below is still in flight.
+      setIsProcessing(false);
 
-      // 5. Update Redux + MMKV → triggers RootNavigator switch to Home
-      dispatch(setCredentials({ user, token }));
-
-      // 6. Save phone via profile update (best-effort, do not block)
+      // 5. Save phone via profile update (best-effort, do not block)
       try {
         await updateProfile({ phone: formatPhoneWithPrefix(phone) }).unwrap();
       } catch {
@@ -120,11 +132,22 @@ export const OtpScreen: React.FC = () => {
       toast.success({ title: 'Welcome back!' });
       // Navigation auto-switches to MainNavigator via RootNavigator
     } catch (err) {
+      // Session genuinely gone (Keychain wiped, force-logout elsewhere) —
+      // no amount of retrying the OTP fixes this, so send the user back to
+      // sign in instead of leaving them stuck re-entering codes.
+      if (err instanceof Error && err.message.startsWith('Missing session')) {
+        toast.error({
+          title: 'Session expired',
+          message: 'Please sign in again.',
+        });
+        navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+        return;
+      }
+
       const mapped = mapApiError(err as never);
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       setHasError(true);
-      setOtp('');
 
       if (mapped.status === 429) {
         toast.error({
@@ -169,8 +192,6 @@ export const OtpScreen: React.FC = () => {
     }
   };
 
-  const blocked = attempts >= OTP_MAX_ATTEMPTS;
-
   return (
     <Screen scrollable>
       <Header title="Verify OTP" onBack={() => navigation.goBack()} />
@@ -184,7 +205,12 @@ export const OtpScreen: React.FC = () => {
       </View>
 
       <View style={styles.otpWrap}>
-        <OtpInput value={otp} onChangeText={setOtp} hasError={hasError} />
+        <OtpInput
+          value={otp}
+          onChangeText={handleOtpChange}
+          hasError={hasError}
+          disabled={blocked}
+        />
       </View>
 
       {blocked && (

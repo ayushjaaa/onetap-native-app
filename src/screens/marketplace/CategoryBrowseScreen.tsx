@@ -18,8 +18,10 @@ import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
 import { useGetFeedQuery } from '@/api/productsApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { formatRelativeShort } from '@/data/listingsStub';
+import { buildMediaUrl } from '@/utils/media';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 import type { CategoryNode, Listing } from '@/types';
@@ -36,7 +38,7 @@ const formatPricePaise = (paise: number): string =>
 
 const toCardData = (listing: Listing) => ({
   id: listing._id,
-  image: listing.photos[0],
+  image: listing.photos[0] ? buildMediaUrl(listing.photos[0]) : undefined,
   title: listing.title,
   price: formatPricePaise(listing.price),
   location: listing.address ?? '',
@@ -52,8 +54,8 @@ export const CategoryBrowseScreen: React.FC<Props> = ({ route }) => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilters>({});
 
-  const location = useAppSelector(state => state.location);
-  const hasLocation = location.latitude != null && location.longitude != null;
+  const location = useEffectiveLocation();
+  const { hasLocation } = location;
   const user = useAppSelector(state => state.auth.user);
 
   const { data: tree, isLoading: categoriesLoading } =
@@ -83,6 +85,7 @@ export const CategoryBrowseScreen: React.FC<Props> = ({ route }) => {
       ? {
           lat: location.latitude as number,
           lng: location.longitude as number,
+          radius: location.radiusKm,
           category: selectedLeafId,
           // AppliedFilters' minPrice/maxPrice are rupees (see its own doc
           // comment); the backend's feed endpoint expects paise — convert here.
@@ -98,7 +101,7 @@ export const CategoryBrowseScreen: React.FC<Props> = ({ route }) => {
       : skipToken,
   );
 
-  const isLoading = isLoadingListings;
+  const isLoading = isLoadingListings || !hasLocation;
   const rawListings = feedData?.listings ?? EMPTY_LISTINGS;
   // When no specific leaf is selected, the feed above was fetched with no
   // category filter — narrow it client-side to this top-level category's

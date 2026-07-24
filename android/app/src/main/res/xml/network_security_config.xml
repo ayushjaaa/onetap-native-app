@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Backend is plain http:// (no TLS yet) — scope cleartext allowance to
+         just this server IP instead of the whole app. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">217.217.248.55</domain>
+    </domain-config>
+</network-security-config>

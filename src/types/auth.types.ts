@@ -15,15 +15,20 @@ export interface User {
   email: string;
   role: UserRole;
   phone?: string | null; // how phone numer can be sting
+  // Server-side truth, set only by POST /phone/verify-otp — gates RootNavigator's
+  // logged-in-vs-home decision. Never assume true just because `phone` is set.
+  phoneVerified?: boolean;
   // Dormant while AADHAAR_KYC_ENABLED (src/config/featureFlags.ts) is off —
   // no endpoint sets this today. Kept so the Aadhaar flow still type-checks
   // when the flag is flipped back on.
   aadhaarVerified?: boolean;
-  // Mirrors AuthUser.kycStatus on the backend. 'verified' is what the manual
-  // admin-approval flow grants (identity:kyc_verified role + listing:create).
-  kycStatus?: 'pending' | 'verified' | 'rejected';
-  sellerType?: 'individual' | 'wholesale';
-  sellerDisplayName?: string;
+  isSellerApproved?: boolean;
+  // Derived client-side (see `deriveSellerFlags`) from `sellerDisplayName` —
+  // distinguishes "picked a seller type" from "finished the profile step".
+  sellerProfileSubmitted?: boolean;
+  // Derived client-side from `kycStatus === 'rejected'` — a terminal state,
+  // not just "not yet approved" (no resubmission path exists).
+  sellerRejected?: boolean;
   interests?: string | null;
   location?: UserLocation;
   avatarUrl?: string | null;
@@ -31,13 +36,22 @@ export interface User {
   // Only returned by /auth/me — drives show/hide in the app, not `role` (which the backend
   // no longer returns on login and only ever used as a cosmetic signup hint).
   permissions?: string[];
+  kycStatus?: 'pending' | 'verified' | 'rejected';
+  // Only meaningful when kycStatus === 'rejected' — set by the admin's
+  // POST /admin/kyc/:id/reject, cleared on approve.
+  kycRejectionReason?: string;
+  // Seller-context identity — set only after seller onboarding (setSellerType +
+  // submitIndividualSellerProfile). Undefined for buyers and mid-onboarding sellers.
+  // Never use this as the primary display name: the same account buys and sells.
+  sellerType?: SellerType;
+  sellerDisplayName?: string;
 }
 
 export interface RegisterRequest {
   name: string;
+  phone: string;
   email: string;
   password: string;
-  phone: string;
   address?: string;
   city?: string;
   state?: string;
@@ -130,25 +144,27 @@ export interface VerifyOtpResponse {
   };
 }
 
-export interface SendForgotPasswordOtpRequest {
+export interface ForgotPasswordSendOtpRequest {
   phone: string;
 }
 
-export interface SendForgotPasswordOtpResponse {
+export interface ForgotPasswordSendOtpResponse {
   success: boolean;
   statusCode: number;
   message: string;
-  data: {
-    expiresInSeconds?: number;
-  };
+  // Always 200 regardless of whether the phone is registered (anti-
+  // enumeration) — data is empty in production, only populated with
+  // code/expiresInSeconds when the backend's EXPOSE_OTP_IN_RESPONSE dev
+  // flag is on.
+  data: Record<string, unknown>;
 }
 
-export interface VerifyForgotPasswordOtpRequest {
+export interface ForgotPasswordVerifyOtpRequest {
   phone: string;
   code: string;
 }
 
-export interface VerifyForgotPasswordOtpResponse {
+export interface ForgotPasswordVerifyOtpResponse {
   success: boolean;
   statusCode: number;
   message: string;
@@ -169,8 +185,25 @@ export interface ResetPasswordResponse {
   data: Record<string, never>;
 }
 
+export interface GoogleSignInRequest {
+  idToken: string;
+}
+
+export interface GoogleSignInResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    user: User;
+    token: string;
+    needsLocation: boolean;
+  };
+}
+
+export type SellerType = 'individual' | 'wholesale';
+
 export interface SetSellerTypeRequest {
-  sellerType: 'individual' | 'wholesale';
+  sellerType: SellerType;
 }
 
 export interface SetSellerTypeResponse {
@@ -178,7 +211,7 @@ export interface SetSellerTypeResponse {
   statusCode: number;
   message: string;
   data: {
-    sellerType: string;
+    sellerType: SellerType;
   };
 }
 
@@ -194,25 +227,10 @@ export interface SubmitIndividualSellerProfileResponse {
   statusCode: number;
   message: string;
   data: {
-    sellerType: string;
+    sellerType: SellerType;
     sellerDisplayName: string;
     sellerBio?: string;
     sellerCategories?: string[];
     avatarUrl?: string;
-  };
-}
-
-export interface GoogleSignInRequest {
-  idToken: string;
-}
-
-export interface GoogleSignInResponse {
-  success: boolean;
-  statusCode: number;
-  message: string;
-  data: {
-    user: User;
-    token: string;
-    needsLocation: boolean;
   };
 }

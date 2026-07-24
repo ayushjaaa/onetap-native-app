@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useForm, Controller } from 'react-hook-form';
@@ -18,7 +18,7 @@ import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { setLocation } from '@/store/locationSlice';
 import { setCredentials } from '@/store/authSlice';
 import { secureStorage } from '@/services/secureStorage';
-import { openAppSettings } from '@/utils/permissions';
+import { openAppSettings, openLocationSettings } from '@/utils/permissions';
 import { useSignupContext } from './SignupContext';
 import { colors, spacing, typography } from '@/theme';
 import type {
@@ -34,7 +34,6 @@ export const SignUpStep4LocationScreen: React.FC = () => {
   const route = useRoute<Route>();
   const fromGoogle = route.params?.fromGoogle === true;
   const googleUser = route.params?.user;
-  const googleToken = route.params?.token;
   const { data, update, reset } = useSignupContext();
   const dispatch = useAppDispatch();
   const toast = useToast();
@@ -66,6 +65,26 @@ export const SignUpStep4LocationScreen: React.FC = () => {
     fetchLocation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Prompt with a real, tappable popup when GPS/location services are off,
+  // instead of just showing an inline error line.
+  useEffect(() => {
+    if (status !== 'gps_off') return;
+    Alert.alert(
+      'Turn on Location',
+      'Location services are off. Enable them to continue.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Enable',
+          onPress: async () => {
+            await openLocationSettings();
+            fetchLocation();
+          },
+        },
+      ],
+    );
+  }, [status, fetchLocation]);
 
   // Sync resolved location into context + redux
   useEffect(() => {
@@ -101,8 +120,17 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       return;
     }
 
-    // Google flow: user already exists & token is in route params.
-    // Skip register, just attach location via updateProfile, then dispatch.
+    // Google flow: user already exists & token was persisted to Keychain
+    // right after Google sign-in. Skip register, just attach location via
+    // updateProfile, then dispatch using the token read fresh from Keychain.
+    const googleToken = fromGoogle ? await secureStorage.getToken() : null;
+    if (fromGoogle && (!googleUser || !googleToken)) {
+      toast.error({
+        title: 'Session expired',
+        message: 'Please sign in again.',
+      });
+      return;
+    }
     if (fromGoogle && googleUser && googleToken) {
       try {
         await updateProfile({
@@ -114,8 +142,6 @@ export const SignUpStep4LocationScreen: React.FC = () => {
           location_pincode: resolved.pincode,
         }).unwrap();
 
-        // Token already saved to Keychain in OtpScreen (or skipped phone path)
-        await secureStorage.saveToken(googleToken);
         dispatch(setCredentials({ user: googleUser, token: googleToken }));
 
         toast.success({
@@ -149,14 +175,18 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       address: resolved.address,
       pincode: resolved.pincode,
     };
-    console.log(
-      '[REGISTER] request payload:',
-      JSON.stringify(payload, null, 2),
-    );
+    if (__DEV__) {
+      console.log('[REGISTER] request for:', payload.email);
+    }
 
     try {
       const res = await register(payload).unwrap();
-      console.log('[REGISTER] success response:', JSON.stringify(res, null, 2));
+      if (__DEV__) {
+        console.log(
+          '[REGISTER] success response:',
+          JSON.stringify(res, null, 2),
+        );
+      }
 
       toast.success({
         title: 'Account created',
@@ -165,21 +195,29 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       reset();
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (err) {
-      console.log('[REGISTER] error response:', JSON.stringify(err, null, 2));
+      if (__DEV__) {
+        console.log('[REGISTER] error response:', JSON.stringify(err, null, 2));
+      }
       const mapped = mapApiError(err as never);
       console.log('[REGISTER] mapped error:', JSON.stringify(mapped, null, 2));
       toast.error({ title: 'Signup failed', message: mapped.message });
     }
   };
 
-  const isFetching = status === 'requesting' || status === 'fetching';
-  const isBlocked =
-    status === 'permission_blocked' || status === 'permission_denied';
+  // 'idle' is the pre-mount-effect frame — treat it as fetching too so the
+  // button doesn't briefly render "Retry" before the fetch has even started.
+  const isFetching =
+    status === 'idle' || status === 'requesting' || status === 'fetching';
+  // Permanently blocked needs Settings; a one-time denial can still be
+  // re-prompted in-app, so keep the two states distinct.
+  const isBlocked = status === 'permission_blocked';
+  const isDenied = status === 'permission_denied';
 
   return (
-    <Screen scrollable>
+    <Screen scrollable testID="signup-step4-screen">
       <Header
         title={fromGoogle ? 'Almost done' : 'Sign Up'}
+        showBack={!fromGoogle}
         onBack={fromGoogle ? undefined : () => navigation.goBack()}
       />
       {!fromGoogle && <StepIndicator current={4} total={4} />}
@@ -257,8 +295,11 @@ export const SignUpStep4LocationScreen: React.FC = () => {
           <View style={styles.btnGap} />
           <Button title="Try Again" variant="outline" onPress={fetchLocation} />
         </>
+      ) : isDenied ? (
+        <Button title="Try Again" onPress={fetchLocation} />
       ) : status === 'success' ? (
         <Button
+          testID="signup-create-account-button"
           title={fromGoogle ? 'Continue' : 'Create Account'}
           onPress={
             fromGoogle
@@ -272,6 +313,7 @@ export const SignUpStep4LocationScreen: React.FC = () => {
         />
       ) : (
         <Button
+          testID="signup-location-retry-button"
           title={isFetching ? 'Fetching…' : 'Retry'}
           onPress={fetchLocation}
           disabled={isFetching}

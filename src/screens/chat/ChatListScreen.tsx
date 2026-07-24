@@ -1,11 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,14 +11,7 @@ import {
   formatRelativeShort,
   stubThumbColour,
 } from '@/data/listingsStub';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ChatList'>;
@@ -140,9 +127,7 @@ export const ChatListScreen: React.FC = () => {
               accessibilityRole="button"
               accessibilityState={{ selected: isActive }}
             >
-              <Text
-                style={[styles.tabText, isActive && styles.tabTextActive]}
-              >
+              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
                 {tab.label}
                 {count > 0 ? ` · ${count}` : ''}
               </Text>
@@ -165,19 +150,25 @@ export const ChatListScreen: React.FC = () => {
               activeTab === 'sold'
                 ? 'No sold conversations'
                 : activeTab === 'active'
-                  ? 'No active conversations'
-                  : 'No conversations yet'
+                ? 'No active conversations'
+                : 'No conversations yet'
             }
             message={
               activeTab === 'all'
-                ? 'Aapke saare chats yahaan dikhayi denge.'
-                : 'Iss filter par koi chat nahi.'
+                ? 'All your chats will show up here.'
+                : 'No chats match this filter.'
             }
             actionLabel={activeTab === 'all' ? 'Browse listings' : undefined}
             onActionPress={activeTab === 'all' ? handleBrowse : undefined}
           />
         ) : (
-          visible.map(row => <ChatRow key={row.listingId} row={row} onPress={() => handleOpen(row)} />)
+          visible.map(row => (
+            <ChatRow
+              key={row.listingId}
+              row={row}
+              onPress={() => handleOpen(row)}
+            />
+          ))
         )}
       </ScrollView>
     </SafeAreaView>
@@ -197,10 +188,7 @@ const ChatRow: React.FC<ChatRowComponentProps> = ({ row, onPress }) => {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        pressed && styles.rowPressed,
-      ]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>{row.counterpartyInitial}</Text>
@@ -213,9 +201,7 @@ const ChatRow: React.FC<ChatRowComponentProps> = ({ row, onPress }) => {
           >
             {row.counterpartyName}
           </Text>
-          <Text
-            style={[styles.rowTime, isUnread && styles.rowTimeUnread]}
-          >
+          <Text style={[styles.rowTime, isUnread && styles.rowTimeUnread]}>
             {formatRelativeShort(row.lastAtIso)}
           </Text>
         </View>

@@ -42,7 +42,7 @@ export const SignUpStep3PasswordScreen: React.FC = () => {
   };
 
   return (
-    <Screen scrollable>
+    <Screen scrollable testID="signup-step3-screen">
       <Header title="Sign Up" onBack={() => navigation.goBack()} />
       <StepIndicator current={3} total={4} />
 
@@ -59,6 +59,7 @@ export const SignUpStep3PasswordScreen: React.FC = () => {
         render={({ field: { onChange, onBlur, value } }) => (
           <>
             <PasswordInput
+              testID="signup-password-input"
               label="Password"
               required
               placeholder="Enter your password"
@@ -80,6 +81,7 @@ export const SignUpStep3PasswordScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
+        testID="signup-step3-next-button"
         title="Next"
         onPress={handleSubmit(onSubmit)}
         disabled={!isValid}

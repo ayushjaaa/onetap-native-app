@@ -12,6 +12,7 @@ interface PhoneInputProps {
   successMessage?: string;
   label?: string;
   required?: boolean;
+  testID?: string;
 }
 
 export const PhoneInput = forwardRef<TextInput, PhoneInputProps>(
@@ -24,6 +25,7 @@ export const PhoneInput = forwardRef<TextInput, PhoneInputProps>(
       successMessage,
       label,
       required = false,
+      testID,
     },
     ref,
   ) => {
@@ -59,6 +61,7 @@ export const PhoneInput = forwardRef<TextInput, PhoneInputProps>(
           <View style={styles.divider} />
           <TextInput
             ref={ref}
+            testID={testID}
             style={styles.input}
             placeholder="Mobile Number"
             placeholderTextColor={colors.textMuted}

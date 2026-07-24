@@ -8,10 +8,10 @@ import { Screen } from '@/components/common/Screen';
 import { Button } from '@/components/common/Button';
 import { Header } from '@/components/common/Header';
 import { PhoneInput } from '@/components/auth/PhoneInput';
-import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
-import { useSendForgotPasswordOtpMutation } from '@/api/authApi';
 import { useToast } from '@/hooks/useToast';
+import { useForgotPasswordSendOtpMutation } from '@/api/authApi';
 import { mapApiError } from '@/utils/errorMapper';
+import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
 import { colors, spacing, typography } from '@/theme';
 import type { AuthStackParamList } from '@/types/navigation.types';
 
@@ -20,8 +20,7 @@ type Nav = NativeStackNavigationProp<AuthStackParamList, 'ForgotPasswordPhone'>;
 export const ForgotPasswordPhoneScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
-
-  const [sendOtp, { isLoading }] = useSendForgotPasswordOtpMutation();
+  const [sendOtp, { isLoading }] = useForgotPasswordSendOtpMutation();
 
   const {
     control,
@@ -34,12 +33,29 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
   });
 
   const onSubmit = async (values: PhoneFormData) => {
+    if (__DEV__) {
+      console.log('[forgotPasswordSendOtp] request body:', {
+        phone: values.phone,
+      });
+    }
     try {
-      await sendOtp({ phone: values.phone }).unwrap();
+      const response = await sendOtp({ phone: values.phone }).unwrap();
+      if (__DEV__) {
+        console.log(
+          '[forgotPasswordSendOtp] raw response:',
+          JSON.stringify(response, null, 2),
+        );
+      }
       navigation.navigate('ForgotPasswordOtp', { phone: values.phone });
     } catch (err) {
+      if (__DEV__) {
+        console.log(
+          '[forgotPasswordSendOtp] raw error response:',
+          JSON.stringify(err, null, 2),
+        );
+      }
       const mapped = mapApiError(err as never);
-      toast.error({ title: 'Could not send OTP', message: mapped.message });
+      toast.error({ title: 'Request failed', message: mapped.message });
     }
   };
 
@@ -50,8 +66,8 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
       <View style={styles.intro}>
         <Text style={styles.title}>Reset your password</Text>
         <Text style={styles.subtitle}>
-          Enter your registered mobile number. We'll send you a 4-digit OTP to
-          verify your identity.
+          Enter your registered phone number. If it's registered, we'll send you
+          an OTP to reset your password.
         </Text>
       </View>
 

@@ -52,6 +52,11 @@ export const baseQueryWithReauth: BaseQueryFn<
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
+  // RN has no window focus/online events, so these are inert unless a
+  // platform-specific listener dispatches onFocus/onOffline — wired via
+  // AppState in src/app/store.ts's setupListeners() call.
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
   tagTypes: [
     'User',
     'Product',

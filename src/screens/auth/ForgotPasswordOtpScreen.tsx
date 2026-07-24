@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,8 +9,8 @@ import { OtpInput } from '@/components/auth/OtpInput';
 import { useToast } from '@/hooks/useToast';
 import { useOtpTimer, formatTimer } from '@/hooks/useOtpTimer';
 import {
-  useSendForgotPasswordOtpMutation,
-  useVerifyForgotPasswordOtpMutation,
+  useForgotPasswordSendOtpMutation,
+  useForgotPasswordVerifyOtpMutation,
 } from '@/api/authApi';
 import { mapApiError } from '@/utils/errorMapper';
 import {
@@ -36,54 +36,48 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
   const [otp, setOtp] = useState('');
   const [hasError, setHasError] = useState(false);
   const [attempts, setAttempts] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const { remaining, expired, restart } = useOtpTimer(OTP_TIMER_SECONDS);
 
   const [sendOtp, { isLoading: resending }] =
-    useSendForgotPasswordOtpMutation();
-  const [verifyOtp] = useVerifyForgotPasswordOtpMutation();
+    useForgotPasswordSendOtpMutation();
+  const [verifyOtp] = useForgotPasswordVerifyOtpMutation();
 
-  // Clear error as user retypes
-  useEffect(() => {
-    if (hasError && otp.length < OTP_LENGTH) {
-      setHasError(false);
-    }
-  }, [otp, hasError]);
+  const blocked = attempts >= OTP_MAX_ATTEMPTS;
 
-  // Auto-submit once all digits are entered
-  useEffect(() => {
-    if (otp.length === OTP_LENGTH && !isProcessing) {
-      handleVerify();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otp]);
+  const handleOtpChange = (text: string) => {
+    setOtp(text);
+    if (hasError) setHasError(false);
+  };
 
   const handleVerify = async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
+    if (isVerifying || blocked || otp.length !== OTP_LENGTH) return;
+    setIsVerifying(true);
 
     try {
-      const result = await verifyOtp({ phone, code: otp }).unwrap();
+      const response = await verifyOtp({ phone, code: otp }).unwrap();
       navigation.navigate('ForgotPasswordReset', {
-        resetToken: result.data.resetToken,
+        token: response.data.resetToken,
       });
     } catch (err) {
       const mapped = mapApiError(err as never);
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       setHasError(true);
-      setOtp('');
 
       if (mapped.status === 429) {
         toast.error({ title: 'Too many attempts', message: mapped.message });
-      } else if (mapped.message.toLowerCase().includes('expired')) {
-        toast.error({ title: 'Code expired', message: mapped.message });
+      } else if (newAttempts >= OTP_MAX_ATTEMPTS) {
+        toast.error({
+          title: 'Too many attempts',
+          message: 'Please request a new OTP.',
+        });
       } else {
-        toast.error({ title: 'Verification failed', message: mapped.message });
+        toast.error({ title: 'Incorrect code', message: mapped.message });
       }
     } finally {
-      setIsProcessing(false);
+      setIsVerifying(false);
     }
   };
 
@@ -101,14 +95,9 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
       });
     } catch (err) {
       const mapped = mapApiError(err as never);
-      toast.error({
-        title: mapped.status === 429 ? 'Too many requests' : 'Could not resend',
-        message: mapped.message,
-      });
+      toast.error({ title: 'Could not resend', message: mapped.message });
     }
   };
-
-  const blocked = attempts >= OTP_MAX_ATTEMPTS;
 
   return (
     <Screen scrollable>
@@ -123,7 +112,12 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
       </View>
 
       <View style={styles.otpWrap}>
-        <OtpInput value={otp} onChangeText={setOtp} hasError={hasError} />
+        <OtpInput
+          value={otp}
+          onChangeText={handleOtpChange}
+          hasError={hasError}
+          disabled={blocked}
+        />
       </View>
 
       {blocked && (
@@ -157,10 +151,10 @@ export const ForgotPasswordOtpScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
-        title={isProcessing ? 'Verifying…' : 'Verify'}
+        title={isVerifying ? 'Verifying…' : 'Verify'}
         onPress={handleVerify}
-        loading={isProcessing}
-        disabled={otp.length !== OTP_LENGTH || isProcessing || blocked}
+        loading={isVerifying}
+        disabled={otp.length !== OTP_LENGTH || isVerifying || blocked}
       />
     </Screen>
   );

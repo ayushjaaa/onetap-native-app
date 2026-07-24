@@ -38,6 +38,13 @@ module.exports = {
         avdName: 'Pixel_6_API_34',
       },
     },
+    attached: {
+      type: 'android.attached',
+      device: {
+        // Run `adb devices` after connecting your phone and paste its id here.
+        adbName: '.*',
+      },
+    },
   },
   configurations: {
     'ios.sim.debug': {
@@ -46,6 +53,10 @@ module.exports = {
     },
     'android.emu.debug': {
       device: 'emulator',
+      app: 'android.debug',
+    },
+    'android.att.debug': {
+      device: 'attached',
       app: 'android.debug',
     },
   },

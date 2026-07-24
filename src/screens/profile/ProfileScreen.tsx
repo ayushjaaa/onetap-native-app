@@ -17,10 +17,8 @@ import {
   ChevronRight,
   IndianRupee,
   KeyRound,
-  Lock,
   LogOut,
   MapPin,
-  MessageCircle,
   Package,
   ShoppingBag,
   Zap,
@@ -41,12 +39,17 @@ import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
 
+// Toggle to re-enable the Account section's "Forgot password" row — see the
+// comment at its render site for why it's off.
+const SHOW_FORGOT_PASSWORD_IN_PROFILE = false;
+
 interface RowProps {
   Icon: LucideIcon;
   label: string;
   value?: string;
   onPress?: () => void;
   destructive?: boolean;
+  testID?: string;
 }
 
 const Row: React.FC<RowProps> = ({
@@ -55,10 +58,12 @@ const Row: React.FC<RowProps> = ({
   value,
   onPress,
   destructive,
+  testID,
 }) => {
   const iconColor = destructive ? colors.error : colors.textPrimary;
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       disabled={!onPress}
       style={({ pressed }) => [
@@ -92,7 +97,7 @@ export const ProfileScreen: React.FC = () => {
     useImageUpload('avatar');
 
   const handleAvatarPress = async () => {
-    const avatarUrl = await pickAvatar();
+    const [avatarUrl] = await pickAvatar();
     if (avatarUrl && user) {
       dispatch(setUser({ ...user, avatarUrl }));
       toast.success({ title: 'Profile photo updated' });
@@ -117,41 +122,34 @@ export const ProfileScreen: React.FC = () => {
     ]);
   };
 
-  const handleChangePassword = () => {
-    toast.info({
-      title: 'Coming soon',
-      message: 'Change password will be available in v2.',
-    });
-  };
-
   const handleForgotPassword = () => {
     navigation.navigate('ForgotPasswordPhone');
   };
 
   const handleUpdateLocation = () => {
-    toast.info({
-      title: 'Coming soon',
-      message: 'Manual location update will be available shortly.',
-    });
+    navigation.navigate('UpdateLocation');
   };
 
   // Seller-row visibility:
-  //   - active seller (kycStatus verified)    → show wallet + sales rows
-  //   - application started but not approved  → show wallet + sales rows AND
-  //                                              a resume row (finish setup,
-  //                                              or check pending-review status)
-  //   - neither                               → don't render the section at all
-  const isSellerVerified = user?.kycStatus === 'verified';
-  const showSellerSection = isSellerVerified || Boolean(user?.sellerType);
-  const showFinishSellerSetup = Boolean(user?.sellerType) && !isSellerVerified;
+  //   - active seller         → show wallet + sales rows
+  //   - aadhaar-verified only → show wallet + sales rows AND a resume row
+  //                             that resumes onboarding wherever it's
+  //                             actually at (not always "buy a package")
+  //   - neither               → don't render the section at all
+  const showSellerSection =
+    Boolean(user?.isSellerApproved) || Boolean(user?.aadhaarVerified);
+  const showFinishSellerSetup =
+    Boolean(user?.aadhaarVerified) && !user?.isSellerApproved;
   const sellerSetupSubmitted = Boolean(user?.sellerDisplayName);
 
   const handleProductWallet = () => navigation.navigate('ProductWallet');
   const handleSalesHistory = () => navigation.navigate('SalesHistory');
+  // Reuses the same resume logic as the "Post an Ad" flow instead of
+  // hardcoding PackageSelection — a seller who already bought a package
+  // (or was rejected) shouldn't be sent back to buy another one.
   const handleFinishSellerSetup = () =>
     navigation.navigate(resolvePostAdDestination(user) as never);
   const handlePurchaseHistory = () => navigation.navigate('PurchaseHistory');
-  const handleMessages = () => navigation.navigate('ChatList');
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -189,6 +187,11 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.name}>{user?.name ?? 'User'}</Text>
           <Text style={styles.email}>{user?.email}</Text>
           {user?.phone ? <Text style={styles.phone}>{user.phone}</Text> : null}
+          {user?.sellerType && user?.sellerDisplayName ? (
+            <Text style={styles.sellingAs}>
+              Selling as {user.sellerDisplayName}
+            </Text>
+          ) : null}
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
               {user?.role?.toUpperCase() ?? 'USER'}
@@ -251,30 +254,27 @@ export const ProfileScreen: React.FC = () => {
             value="Items you've shown interest in"
             onPress={handlePurchaseHistory}
           />
-          <View style={styles.divider} />
-          <Row
-            Icon={MessageCircle}
-            label="Messages"
-            value="Buyer + seller conversations"
-            onPress={handleMessages}
-          />
         </View>
 
-        {/* Account section */}
-        <Text style={styles.sectionTitle}>Account</Text>
-        <View style={styles.card}>
-          <Row
-            Icon={Lock}
-            label="Change password"
-            onPress={handleChangePassword}
-          />
-          <View style={styles.divider} />
-          <Row
-            Icon={KeyRound}
-            label="Forgot password"
-            onPress={handleForgotPassword}
-          />
-        </View>
+        {/* Account section — hidden for now (not removed): letting an
+            already-logged-in user trigger the anonymous phone-OTP
+            forgot-password flow on themselves is confusing (it can look like
+            nothing happened, or like the wrong account changed, since your
+            own session never visibly changes). Re-enable once a proper
+            authenticated "Change password" (current-password-required) flow
+            replaces this, or once this is deliberately re-scoped. */}
+        {SHOW_FORGOT_PASSWORD_IN_PROFILE ? (
+          <>
+            <Text style={styles.sectionTitle}>Account</Text>
+            <View style={styles.card}>
+              <Row
+                Icon={KeyRound}
+                label="Forgot password"
+                onPress={handleForgotPassword}
+              />
+            </View>
+          </>
+        ) : null}
 
         {/* Location */}
         <Text style={styles.sectionTitle}>Location</Text>
@@ -290,6 +290,7 @@ export const ProfileScreen: React.FC = () => {
         {/* Sign out */}
         <View style={[styles.card, styles.cardSpaced]}>
           <Row
+            testID="profile-logout-button"
             Icon={LogOut}
             label="Sign out"
             onPress={handleLogout}
@@ -355,6 +356,12 @@ const styles = StyleSheet.create({
   phone: {
     ...typography.caption,
     color: colors.textMuted,
+    marginTop: spacing.xs,
+  },
+  sellingAs: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: '600',
     marginTop: spacing.xs,
   },
   roleBadge: {

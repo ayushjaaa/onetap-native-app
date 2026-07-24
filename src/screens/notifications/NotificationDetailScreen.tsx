@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from 'lucide-react-native';
 import { useMarkNotificationReadMutation } from '@/api/notificationApi';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
+import { Sentry } from '@/config/sentry';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
@@ -80,13 +81,20 @@ function getAction(
 
   switch (type) {
     case 'listing.approved':
-    case 'listing.rejected':
       return listingId
         ? {
             label: 'View listing',
             onPress: nav => nav.navigate('ListingDetail', { listingId }),
           }
         : null;
+    case 'listing.rejected':
+      // GET /listings/:id is public and only serves Live/Sold listings — a
+      // rejected one 404s there. My Ads already holds the full object (from
+      // GET /listings/mine) and has its own rejection-reason sheet.
+      return {
+        label: 'View in My Ads',
+        onPress: nav => nav.navigate('Tabs', { screen: 'MyAds' }),
+      };
     case 'transaction.completed':
       return {
         label: 'View transaction',
@@ -110,7 +118,9 @@ export const NotificationDetailScreen: React.FC<Props> = ({ route }) => {
 
   useEffect(() => {
     if (notification.status !== 'read') {
-      void markRead(notification._id);
+      markRead(notification._id)
+        .unwrap()
+        .catch((err: unknown) => Sentry.captureException(err));
     }
     // Only ever needs to fire once per screen instance, regardless of later
     // renders — re-running on notification/markRead identity changes would
