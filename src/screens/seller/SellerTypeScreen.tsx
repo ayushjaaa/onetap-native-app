@@ -91,8 +91,8 @@ export const SellerTypeScreen: React.FC = () => {
 
   const handleContinue = async () => {
     if (selected !== 'individual' || isSubmitting) return;
-    setIsSubmitting(true);
 
+    setIsSubmitting(true);
     try {
       await setSellerTypeMutation({ sellerType: 'individual' }).unwrap();
 

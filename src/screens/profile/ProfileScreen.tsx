@@ -140,6 +140,7 @@ export const ProfileScreen: React.FC = () => {
     Boolean(user?.isSellerApproved) || Boolean(user?.aadhaarVerified);
   const showFinishSellerSetup =
     Boolean(user?.aadhaarVerified) && !user?.isSellerApproved;
+  const sellerSetupSubmitted = Boolean(user?.sellerDisplayName);
 
   const handleProductWallet = () => navigation.navigate('ProductWallet');
   const handleSalesHistory = () => navigation.navigate('SalesHistory');
@@ -226,8 +227,16 @@ export const ProfileScreen: React.FC = () => {
                   <View style={styles.divider} />
                   <Row
                     Icon={Zap}
-                    label="Finish seller setup"
-                    value="Pick a package to start posting"
+                    label={
+                      sellerSetupSubmitted
+                        ? 'Application under review'
+                        : 'Finish seller setup'
+                    }
+                    value={
+                      sellerSetupSubmitted
+                        ? "We'll notify you once approved"
+                        : 'Complete your seller profile'
+                    }
                     onPress={handleFinishSellerSetup}
                   />
                 </>

@@ -94,7 +94,7 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
-        title="Send OTP"
+        title={isLoading ? 'Sending…' : 'Send OTP'}
         onPress={handleSubmit(onSubmit)}
         loading={isLoading}
         disabled={!isValid || isLoading}

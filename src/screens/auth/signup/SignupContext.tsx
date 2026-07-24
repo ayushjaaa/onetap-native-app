@@ -2,10 +2,11 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 
 export interface SignupData {
   name: string;
+  // Required — the backend requires `phone` at registration. Captured at
+  // Step 4 along with location, kept here for the final POST.
   phone: string;
   email: string;
   password: string;
-  // Location is captured at Step 4 — kept here for the final POST
   lat?: number;
   lng?: number;
   city?: string;

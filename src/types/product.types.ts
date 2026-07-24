@@ -177,3 +177,23 @@ export interface TrendingSearchTerm {
 export interface GetTrendingSearchesResponseData {
   trending: TrendingSearchTerm[];
 }
+
+export interface AddFavoriteResponseData {
+  listingId: string;
+}
+
+export interface RemoveFavoriteResponseData {
+  listingId: string;
+}
+
+export interface GetMyFavoritesResponseData {
+  favorites: Listing[];
+  total: number;
+  limit: number;
+  skip: number;
+}
+
+export interface CreateShareLinkResponseData {
+  code: string;
+  url: string;
+}

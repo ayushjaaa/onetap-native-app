@@ -86,7 +86,7 @@ export const BecomeSellerIntroScreen: React.FC = () => {
 
   const sellerType = user?.sellerType;
   const profileSubmitted = Boolean(user?.sellerProfileSubmitted);
-  const hasCredits = (walletData?.wallet.postCredits ?? 0) > 0;
+  const hasCredits = (walletData?.wallet?.postCredits ?? 0) > 0;
   const sellerActive = Boolean(user?.isSellerApproved);
   const onboardingStarted = Boolean(sellerType);
   // Admin can reject at any point after profile submission — doesn't

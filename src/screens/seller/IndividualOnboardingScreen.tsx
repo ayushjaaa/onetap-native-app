@@ -356,9 +356,7 @@ export const IndividualOnboardingScreen: React.FC = () => {
             <View style={styles.successCircle}>
               <CheckCircle2 size={72} color={colors.success} />
             </View>
-            <Text style={styles.successTitle}>
-              You're a verified seller! 🎉
-            </Text>
+            <Text style={styles.successTitle}>Application submitted! 🎉</Text>
             <Text style={styles.successBody}>
               Pick a package to post your first product.
             </Text>

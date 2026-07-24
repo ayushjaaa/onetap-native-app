@@ -6,6 +6,8 @@ import type {
   GetUnreadCountResponseData,
   MarkAllReadResponseData,
   MarkReadResponseData,
+  GetFeatureInterestsResponseData,
+  FeatureInterestResponseData,
 } from '@/types';
 
 export const notificationApi = baseApi.injectEndpoints({
@@ -59,6 +61,42 @@ export const notificationApi = baseApi.injectEndpoints({
         { type: 'User' as const, id: `NOTIFICATION_${id}` },
       ],
     }),
+
+    // "Notify me when this launches" — ComingSoonScreen's toggle.
+    getFeatureInterests: builder.query<GetFeatureInterestsResponseData, void>({
+      query: () => ({ url: '/notification/feature-interest', method: 'GET' }),
+      transformResponse: (
+        response: ApiResponse<GetFeatureInterestsResponseData>,
+      ) => response.data,
+      providesTags: [{ type: 'User' as const, id: 'FEATURE_INTERESTS' }],
+    }),
+
+    subscribeFeatureInterest: builder.mutation<
+      FeatureInterestResponseData,
+      string
+    >({
+      query: featureKey => ({
+        url: '/notification/feature-interest',
+        method: 'POST',
+        body: { featureKey },
+      }),
+      transformResponse: (response: ApiResponse<FeatureInterestResponseData>) =>
+        response.data,
+      invalidatesTags: [{ type: 'User' as const, id: 'FEATURE_INTERESTS' }],
+    }),
+
+    unsubscribeFeatureInterest: builder.mutation<
+      FeatureInterestResponseData,
+      string
+    >({
+      query: featureKey => ({
+        url: `/notification/feature-interest/${featureKey}`,
+        method: 'DELETE',
+      }),
+      transformResponse: (response: ApiResponse<FeatureInterestResponseData>) =>
+        response.data,
+      invalidatesTags: [{ type: 'User' as const, id: 'FEATURE_INTERESTS' }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -69,4 +107,7 @@ export const {
   useGetUnreadCountQuery,
   useMarkAllNotificationsReadMutation,
   useMarkNotificationReadMutation,
+  useGetFeatureInterestsQuery,
+  useSubscribeFeatureInterestMutation,
+  useUnsubscribeFeatureInterestMutation,
 } = notificationApi;

@@ -147,7 +147,7 @@ export const ForgotPasswordResetScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
-        title="Reset Password"
+        title={isLoading ? 'Resetting…' : 'Reset Password'}
         onPress={handleSubmit(onSubmit)}
         loading={isLoading}
         disabled={!isValid || isLoading}

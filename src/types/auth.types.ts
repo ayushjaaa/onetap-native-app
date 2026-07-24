@@ -18,6 +18,9 @@ export interface User {
   // Server-side truth, set only by POST /phone/verify-otp — gates RootNavigator's
   // logged-in-vs-home decision. Never assume true just because `phone` is set.
   phoneVerified?: boolean;
+  // Dormant while AADHAAR_KYC_ENABLED (src/config/featureFlags.ts) is off —
+  // no endpoint sets this today. Kept so the Aadhaar flow still type-checks
+  // when the flag is flipped back on.
   aadhaarVerified?: boolean;
   isSellerApproved?: boolean;
   // Derived client-side (see `deriveSellerFlags`) from `sellerDisplayName` —

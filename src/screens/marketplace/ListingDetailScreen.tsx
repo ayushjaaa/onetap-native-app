@@ -58,6 +58,11 @@ import {
   useGetMyInterestsAsBuyerQuery,
   useSelectBuyerMutation,
 } from '@/api/transactionsApi';
+import {
+  useGetMyFavoritesQuery,
+  useAddFavoriteMutation,
+  useRemoveFavoriteMutation,
+} from '@/api/favoritesApi';
 import { getDistanceKm } from '@/utils/geo';
 import { buildMediaUrl } from '@/utils/media';
 import { mapApiError } from '@/utils/errorMapper';
@@ -151,7 +156,6 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     listingOverride ?? passedListing ?? listingData?.listing ?? null;
 
   const [activeImage, setActiveImage] = useState(0);
-  const [isFavorite, setIsFavorite] = useState(false);
   // Instant local feedback the moment "Buy this product" is confirmed, before
   // the server-derived check below has a chance to refetch/reflect it.
   const [localInterestOverride, setLocalInterestOverride] = useState(false);
@@ -185,6 +189,18 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       JSON.stringify(receivedInterestsData, null, 2),
     );
   }
+
+  // Favorites are buyer-only (the heart icon never renders in seller mode —
+  // see the top-bar Pressable below), so skip the fetch entirely otherwise.
+  const { data: favoritesData } = useGetMyFavoritesQuery(
+    isSellerMode ? skipToken : undefined,
+  );
+  const isFavorite =
+    favoritesData?.favorites?.some(f => f._id === listing?._id) ?? false;
+  const [addFavorite, { isLoading: addingFavorite }] = useAddFavoriteMutation();
+  const [removeFavorite, { isLoading: removingFavorite }] =
+    useRemoveFavoriteMutation();
+  const togglingFavorite = addingFavorite || removingFavorite;
   const interestedBuyers: InterestedBuyer[] = (
     receivedInterestsData?.interests ?? []
   )
@@ -302,6 +318,27 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       toast.error({
         title: "Couldn't send interest",
         message: 'Network issue — please try again.',
+      });
+    }
+  };
+
+  const handleToggleFavorite = async () => {
+    if (togglingFavorite) return;
+    try {
+      if (isFavorite) {
+        await removeFavorite(listing._id).unwrap();
+      } else {
+        await addFavorite(listing._id).unwrap();
+      }
+    } catch (err: any) {
+      // 409 (already favorited) / 404 (already removed) both mean the
+      // desired end state is already true — the cache invalidation on the
+      // next getMyFavorites fetch will reconcile the icon, nothing to show.
+      if (err?.status === 409 || err?.status === 404) return;
+      const mapped = mapApiError(err as never);
+      toast.error({
+        title: "Couldn't update favorites",
+        message: mapped.message,
       });
     }
   };
@@ -477,9 +514,14 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               ) : (
                 <>
                   <Pressable
-                    onPress={() => setIsFavorite(prev => !prev)}
+                    onPress={handleToggleFavorite}
+                    disabled={togglingFavorite}
                     hitSlop={spacing.md}
                     style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                    }
                   >
                     <Heart
                       size={layout.iconSize.md}

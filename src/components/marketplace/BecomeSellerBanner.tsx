@@ -1,15 +1,9 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BadgeCheck, ChevronRight } from 'lucide-react-native';
-import {
-  colors,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { colors, layout, radius, spacing, typography } from '@/theme';
 
-export type BecomeSellerBannerState = 'default' | 'resume';
+export type BecomeSellerBannerState = 'default' | 'resume' | 'pending';
 
 export interface BecomeSellerBannerProps {
   state: BecomeSellerBannerState;
@@ -32,6 +26,11 @@ const COPY: Record<BecomeSellerBannerState, CopyVariant> = {
     title: 'Finish your seller setup',
     subtitle: '1 step left to start selling',
     cta: 'Finish setup',
+  },
+  pending: {
+    title: 'Application under review',
+    subtitle: "We'll notify you once approved",
+    cta: 'View status',
   },
 };
 

@@ -1,11 +1,5 @@
-import React, { useState } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import React from 'react';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type {
@@ -21,13 +15,11 @@ import {
 } from 'lucide-react-native';
 import { useToast } from '@/hooks/useToast';
 import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+  useGetFeatureInterestsQuery,
+  useSubscribeFeatureInterestMutation,
+  useUnsubscribeFeatureInterestMutation,
+} from '@/api/notificationApi';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ComingSoon'>;
@@ -53,16 +45,33 @@ export const ComingSoonScreen: React.FC<Props> = ({ route }) => {
 
   const meta = FEATURE_META[featureKey];
 
-  const [notify, setNotify] = useState(false);
+  const { data: featureInterests } = useGetFeatureInterestsQuery();
+  const notify = featureInterests?.featureKeys.includes(featureKey) ?? false;
+  const [subscribe, { isLoading: subscribing }] =
+    useSubscribeFeatureInterestMutation();
+  const [unsubscribe, { isLoading: unsubscribing }] =
+    useUnsubscribeFeatureInterestMutation();
+  const toggling = subscribing || unsubscribing;
 
-  const handleToggleNotify = (next: boolean) => {
-    setNotify(next);
-    toast.info({
-      title: next ? "We'll let you know!" : 'Notifications off',
-      message: next
-        ? `We'll ping you the moment ${meta.title} goes live.`
-        : `You won't be notified about ${meta.title}.`,
-    });
+  const handleToggleNotify = async (next: boolean) => {
+    try {
+      if (next) {
+        await subscribe(featureKey).unwrap();
+      } else {
+        await unsubscribe(featureKey).unwrap();
+      }
+      toast.info({
+        title: next ? "We'll let you know!" : 'Notifications off',
+        message: next
+          ? `We'll ping you the moment ${meta.title} goes live.`
+          : `You won't be notified about ${meta.title}.`,
+      });
+    } catch {
+      toast.error({
+        title: "Couldn't update",
+        message: 'Network issue — please try again.',
+      });
+    }
   };
 
   const handleBackToHome = () => {
@@ -100,15 +109,16 @@ export const ComingSoonScreen: React.FC<Props> = ({ route }) => {
               <Bell size={layout.iconSize.md} color={colors.primary} />
             </View>
             <View style={styles.notifyTextWrap}>
-              <Text style={styles.notifyTitle}>Notify me when this launches</Text>
-              <Text style={styles.notifyHint}>
-                Ek tap se launch alert on
+              <Text style={styles.notifyTitle}>
+                Notify me when this launches
               </Text>
+              <Text style={styles.notifyHint}>Ek tap se launch alert on</Text>
             </View>
           </View>
           <Switch
             value={notify}
             onValueChange={handleToggleNotify}
+            disabled={toggling}
             trackColor={{
               false: colors.border,
               true: colors.primaryAlpha30,
