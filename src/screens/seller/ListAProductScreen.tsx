@@ -155,7 +155,7 @@ export const ListAProductScreen: React.FC = () => {
   // doesn't reflect what's actually spendable.
   const { data: myListingsData, isLoading: slotsLoading } =
     useGetMyListingsQuery();
-  const slotsAvailable = myListingsData?.summary.slotsRemaining ?? 0;
+  const slotsAvailable = myListingsData?.summary?.slotsRemaining ?? 0;
   const outOfSlots = !slotsLoading && slotsAvailable <= 0;
   const [createListing, { isLoading: submitting }] = useCreateListingMutation();
   const { pick: pickListingPhoto, isUploading } = useImageUpload('listing');

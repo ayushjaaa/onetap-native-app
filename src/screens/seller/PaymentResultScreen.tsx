@@ -89,10 +89,12 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
         // catch block below, which already has a friendly failure UI.
         retry: { enabled: false },
       };
-      console.log(
-        '[razorpay-debug] opening checkout with:',
-        JSON.stringify(checkoutOptions),
-      );
+      if (__DEV__) {
+        console.log(
+          '[razorpay-debug] opening checkout with:',
+          JSON.stringify(checkoutOptions),
+        );
+      }
 
       const checkoutResult = env.E2E_MOCK_PAYMENTS
         ? await Promise.reject({
@@ -101,10 +103,12 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
           })
         : await RazorpayCheckout.open(checkoutOptions);
 
-      console.log(
-        '[razorpay-debug] checkout result:',
-        JSON.stringify(checkoutResult),
-      );
+      if (__DEV__) {
+        console.log(
+          '[razorpay-debug] checkout result:',
+          JSON.stringify(checkoutResult),
+        );
+      }
 
       // 3. Confirm the signed payment with the backend. This never moves
       //    money itself — the wallet is credited by the verified webhook —
@@ -116,10 +120,12 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
         razorpay_signature: checkoutResult.razorpay_signature,
       }).unwrap();
 
-      console.log(
-        '[razorpay-debug] verifyResult:',
-        JSON.stringify(verifyResult),
-      );
+      if (__DEV__) {
+        console.log(
+          '[razorpay-debug] verifyResult:',
+          JSON.stringify(verifyResult),
+        );
+      }
 
       if (verifyResult.status === 'paid') {
         setState('success');
@@ -130,7 +136,9 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
         setFailureReason('Payment could not be confirmed.');
       }
     } catch (err) {
-      console.log('[razorpay-debug] caught error:', JSON.stringify(err), err);
+      if (__DEV__) {
+        console.log('[razorpay-debug] caught error:', JSON.stringify(err), err);
+      }
       // RazorpayCheckout.open rejects with { code, description } on
       // cancel/failure — a plain object, not an RTK Query error shape.
       // On some failure types (e.g. payment_authentication step errors),

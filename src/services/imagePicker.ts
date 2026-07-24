@@ -7,6 +7,17 @@ export interface PickedImage {
   type: string;
 }
 
+// react-native-image-picker reports a permanently-denied permission as
+// errorCode: 'permission', distinct from didCancel (user tapped Cancel).
+// Thrown so callers can tell "denied — show a settings prompt" apart from
+// "cancelled — do nothing", instead of both collapsing to an empty result.
+export class ImagePickerPermissionError extends Error {
+  constructor() {
+    super('Camera/gallery permission denied');
+    this.name = 'ImagePickerPermissionError';
+  }
+}
+
 const PICKER_OPTIONS = {
   mediaType: 'photo' as const,
   quality: 0.8 as const,
@@ -33,6 +44,7 @@ export async function pickImagesFromLibrary(
     ...PICKER_OPTIONS,
     selectionLimit,
   });
+  if (result.errorCode === 'permission') throw new ImagePickerPermissionError();
   if (result.didCancel || !result.assets?.length) return [];
   return result.assets
     .filter((asset): asset is typeof asset & { uri: string } => !!asset.uri)
@@ -45,6 +57,7 @@ export async function pickImagesFromLibrary(
 
 export async function pickImageFromCamera(): Promise<PickedImage | null> {
   const result = await launchCamera(PICKER_OPTIONS);
+  if (result.errorCode === 'permission') throw new ImagePickerPermissionError();
   const asset = result.assets?.[0];
   if (result.didCancel || !asset?.uri) return null;
   return {

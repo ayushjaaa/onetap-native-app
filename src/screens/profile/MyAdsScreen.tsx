@@ -133,7 +133,7 @@ export const MyAdsScreen: React.FC = () => {
     () => rawListings.filter(isVisibleInMyAds).map(toMyListing),
     [rawListings],
   );
-  const slotsAvailable = data?.summary.slotsRemaining ?? 0;
+  const slotsAvailable = data?.summary?.slotsRemaining ?? 0;
 
   const counts = useMemo(() => {
     const c: Record<ListingStatus, number> = {

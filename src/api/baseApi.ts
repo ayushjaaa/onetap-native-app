@@ -21,9 +21,6 @@ const rawBaseQuery = fetchBaseQuery({
   timeout: 15000,
   prepareHeaders: async (headers, api) => {
     const token = await secureStorage.getToken();
-    if (api.endpoint === 'sendOtp') {
-      console.log('[sendOtp] auth token:', token);
-    }
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }

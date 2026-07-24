@@ -25,6 +25,7 @@ import {
 import { formatRelativeShort } from '@/data/listingsStub';
 import type { Notification } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
+import { Sentry } from '@/config/sentry';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'Notifications'>;
@@ -81,11 +82,19 @@ export const NotificationCenterScreen: React.FC = () => {
   );
 
   const handleMarkAllRead = () => {
-    void markAllRead();
+    // Fire-and-forget by design — not user-blocking — but still report a
+    // failure instead of letting it vanish silently.
+    markAllRead()
+      .unwrap()
+      .catch((err: unknown) => Sentry.captureException(err));
   };
 
   const handleRowTap = (n: Notification) => {
-    if (n.status !== 'read') void markRead(n._id);
+    if (n.status !== 'read') {
+      markRead(n._id)
+        .unwrap()
+        .catch((err: unknown) => Sentry.captureException(err));
+    }
     routeFromNotification(n, navigation);
   };
 

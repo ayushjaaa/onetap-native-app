@@ -156,14 +156,18 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       address: resolved.address,
       pincode: resolved.pincode,
     };
-    console.log(
-      '[REGISTER] request payload:',
-      JSON.stringify(payload, null, 2),
-    );
+    if (__DEV__) {
+      console.log('[REGISTER] request for:', payload.email);
+    }
 
     try {
       const res = await register(payload).unwrap();
-      console.log('[REGISTER] success response:', JSON.stringify(res, null, 2));
+      if (__DEV__) {
+        console.log(
+          '[REGISTER] success response:',
+          JSON.stringify(res, null, 2),
+        );
+      }
 
       toast.success({
         title: 'Account created',
@@ -172,7 +176,9 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       reset();
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (err) {
-      console.log('[REGISTER] error response:', JSON.stringify(err, null, 2));
+      if (__DEV__) {
+        console.log('[REGISTER] error response:', JSON.stringify(err, null, 2));
+      }
       const mapped = mapApiError(err as never);
       console.log('[REGISTER] mapped error:', JSON.stringify(mapped, null, 2));
       toast.error({ title: 'Signup failed', message: mapped.message });

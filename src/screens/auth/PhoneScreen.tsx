@@ -74,9 +74,13 @@ export const PhoneScreen: React.FC = () => {
     try {
       // Bearer token was already persisted to Keychain right after login —
       // send-otp (authMiddleware-protected) picks it up automatically.
-      console.log('[sendOtp] payload:', { phone: values.phone });
+      if (__DEV__) {
+        console.log('[sendOtp] payload:', { phone: values.phone });
+      }
       const response = await sendOtp({ phone: values.phone }).unwrap();
-      console.log('[sendOtp] raw response:', response);
+      if (__DEV__) {
+        console.log('[sendOtp] raw response:', response);
+      }
       navigation.navigate('Otp', {
         email,
         password,
@@ -86,7 +90,9 @@ export const PhoneScreen: React.FC = () => {
         needsLocation,
       });
     } catch (err) {
-      console.log('[sendOtp] raw error response:', err);
+      if (__DEV__) {
+        console.log('[sendOtp] raw error response:', err);
+      }
       const mapped = mapApiError(err as never);
       toast.error({ title: 'Could not send OTP', message: mapped.message });
     }

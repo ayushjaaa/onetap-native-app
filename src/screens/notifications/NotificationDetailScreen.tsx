@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from 'lucide-react-native';
 import { useMarkNotificationReadMutation } from '@/api/notificationApi';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
+import { Sentry } from '@/config/sentry';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
@@ -117,7 +118,9 @@ export const NotificationDetailScreen: React.FC<Props> = ({ route }) => {
 
   useEffect(() => {
     if (notification.status !== 'read') {
-      void markRead(notification._id);
+      markRead(notification._id)
+        .unwrap()
+        .catch((err: unknown) => Sentry.captureException(err));
     }
     // Only ever needs to fire once per screen instance, regardless of later
     // renders — re-running on notification/markRead identity changes would

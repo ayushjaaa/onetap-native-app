@@ -2,6 +2,7 @@ import {
   pickImageFromCamera,
   pickImagesFromLibrary,
   promptImageSource,
+  ImagePickerPermissionError,
   type PickedImage,
 } from '@/services/imagePicker';
 import {
@@ -56,13 +57,30 @@ export function useImageUpload(target: UploadTarget) {
   const pick = async (maxCount = 1): Promise<string[]> => {
     if (env.E2E_MOCK_PHOTOS) return [mockUploadedUrl()];
 
-    const source = await promptImageSource();
-    if (!source) return [];
+    let images: PickedImage[];
+    try {
+      const source = await promptImageSource();
+      if (!source) return [];
 
-    const images =
-      source === 'camera'
-        ? await pickImageFromCamera().then(img => (img ? [img] : []))
-        : await pickImagesFromLibrary(maxCount);
+      images =
+        source === 'camera'
+          ? await pickImageFromCamera().then(img => (img ? [img] : []))
+          : await pickImagesFromLibrary(maxCount);
+    } catch (err) {
+      if (err instanceof ImagePickerPermissionError) {
+        toast.error({
+          title: 'Permission needed',
+          message: 'Allow camera/photo access in Settings to add photos.',
+        });
+      } else {
+        console.warn('[useImageUpload] picker failed:', err);
+        toast.error({
+          title: "Couldn't open camera/gallery",
+          message: 'Please try again.',
+        });
+      }
+      return [];
+    }
     if (images.length === 0) return [];
 
     // Uploaded one at a time, not via Promise.all — firing every multipart

@@ -44,6 +44,10 @@ import type { MainStackParamList } from '@/types/navigation.types';
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ChatConversation'>;
 type Props = NativeStackScreenProps<MainStackParamList, 'ChatConversation'>;
 
+// No overflow-menu implementation exists yet (was rendering as a dead tap
+// with no onPress) — hidden until MoreVertical's onPress is wired up.
+const CHAT_MENU_ENABLED = false;
+
 const QUICK_REPLIES = [
   'Is it still available?',
   "What's your best price?",
@@ -194,12 +198,14 @@ export const ChatConversationScreen: React.FC<Props> = ({ route }) => {
               </Text>
             </View>
           </View>
-          <Pressable hitSlop={spacing.md} style={styles.menuBtn}>
-            <MoreVertical
-              size={layout.iconSize.md}
-              color={colors.textPrimary}
-            />
-          </Pressable>
+          {CHAT_MENU_ENABLED ? (
+            <Pressable hitSlop={spacing.md} style={styles.menuBtn}>
+              <MoreVertical
+                size={layout.iconSize.md}
+                color={colors.textPrimary}
+              />
+            </Pressable>
+          ) : null}
         </View>
 
         {/* Pinned listing context card */}

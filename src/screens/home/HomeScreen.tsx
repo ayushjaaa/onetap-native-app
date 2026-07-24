@@ -111,8 +111,10 @@ export const HomeScreen: React.FC = () => {
     error: categoriesError,
   } = useGetTopCategoriesQuery();
 
-  console.log('[HomeScreen] top categories response:', topCategories);
-  console.log('[HomeScreen] top categories error:', categoriesError);
+  if (__DEV__) {
+    console.log('[HomeScreen] top categories response:', topCategories);
+    console.log('[HomeScreen] top categories error:', categoriesError);
+  }
 
   const { hasLocation } = location;
   const {
@@ -135,14 +137,16 @@ export const HomeScreen: React.FC = () => {
     { pollingInterval: isFocused ? 20000 : 0 },
   );
 
-  console.log(
-    '[HomeScreen] trending query args:',
-    hasLocation
-      ? { lat: location.latitude, lng: location.longitude }
-      : 'skipped (no location yet)',
-  );
-  console.log('[HomeScreen] trending response:', trendingData);
-  console.log('[HomeScreen] trending error:', trendingError);
+  if (__DEV__) {
+    console.log(
+      '[HomeScreen] trending query args:',
+      hasLocation
+        ? { lat: location.latitude, lng: location.longitude }
+        : 'skipped (no location yet)',
+    );
+    console.log('[HomeScreen] trending response:', trendingData);
+    console.log('[HomeScreen] trending error:', trendingError);
+  }
 
   const trending: ListingCardData[] = (
     trendingData?.listings ?? EMPTY_LISTINGS
@@ -168,7 +172,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleCategoryPress = (category: CategoryNode) => {
-    console.log('[HomeScreen] category pressed:', category);
+    if (__DEV__) console.log('[HomeScreen] category pressed:', category);
     navigation.navigate('CategoryBrowse', {
       category: { id: category.id, name: category.name },
     });

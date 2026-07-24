@@ -71,6 +71,10 @@ type Props = NativeStackScreenProps<MainStackParamList, 'ListingDetail'>;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GALLERY_HEIGHT = SCREEN_WIDTH * 0.85;
 
+// No share implementation exists yet (was rendering as a dead tap with no
+// onPress) — hidden until Share2's onPress is actually wired up.
+const SHARE_ENABLED = false;
+
 const HOLD_TO_CONFIRM_MS = 1000;
 
 // Local view-model for a seller's received interest, derived from the real
@@ -175,10 +179,12 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const { data: receivedInterestsData } = useGetReceivedInterestsQuery(
     isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
   );
-  console.log(
-    '[ListingDetailScreen] GET /marketplace/interests/received raw response:',
-    JSON.stringify(receivedInterestsData, null, 2),
-  );
+  if (__DEV__) {
+    console.log(
+      '[ListingDetailScreen] GET /marketplace/interests/received raw response:',
+      JSON.stringify(receivedInterestsData, null, 2),
+    );
+  }
   const interestedBuyers: InterestedBuyer[] = (
     receivedInterestsData?.interests ?? []
   )
@@ -264,10 +270,12 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const handleBuyConfirm = async () => {
     try {
       const res = await expressInterest({ listingId: listing._id }).unwrap();
-      console.log(
-        '[EXPRESS_INTEREST] success response:',
-        JSON.stringify(res, null, 2),
-      );
+      if (__DEV__) {
+        console.log(
+          '[EXPRESS_INTEREST] success response:',
+          JSON.stringify(res, null, 2),
+        );
+      }
 
       setLocalInterestOverride(true);
       setBuyConfirmOpen(false);
@@ -278,10 +286,12 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         } will reach out if you're selected.`,
       });
     } catch (err: any) {
-      console.log(
-        '[EXPRESS_INTEREST] error response:',
-        JSON.stringify(err, null, 2),
-      );
+      if (__DEV__) {
+        console.log(
+          '[EXPRESS_INTEREST] error response:',
+          JSON.stringify(err, null, 2),
+        );
+      }
       if (err?.status === 409) {
         // Already expressed interest previously (e.g. re-tapped after a reload) —
         // treat as success so the buyer still reaches the "interest sent" state.
@@ -477,9 +487,11 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                       fill={isFavorite ? colors.error : 'transparent'}
                     />
                   </Pressable>
-                  <Pressable hitSlop={spacing.md} style={styles.iconBtn}>
-                    <Share2 size={layout.iconSize.md} color={colors.white} />
-                  </Pressable>
+                  {SHARE_ENABLED ? (
+                    <Pressable hitSlop={spacing.md} style={styles.iconBtn}>
+                      <Share2 size={layout.iconSize.md} color={colors.white} />
+                    </Pressable>
+                  ) : null}
                 </>
               )}
             </View>
@@ -949,7 +961,8 @@ const InterestedBuyersSection: React.FC<InterestedBuyersSectionProps> = ({
                 </Text>
               </View>
               <Text style={styles.buyerLocation}>
-                {buyer.locationLabel} · {buyer.distanceKm} km
+                {buyer.locationLabel}
+                {buyer.distanceKm != null ? ` · ${buyer.distanceKm} km` : ''}
               </Text>
               <View style={styles.buyerBtns}>
                 {buyer.phone ? (

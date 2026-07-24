@@ -9,6 +9,7 @@ import {
   hydrateRadiusPreferences,
 } from '@/store/locationSlice';
 import { authApi } from '@/api/authApi';
+import { Sentry } from '@/config/sentry';
 import { STORAGE_KEYS, SPLASH_MIN_DURATION_MS } from '@/config/constants';
 import type { User } from '@/types';
 import type { LocationState } from '@/store/locationSlice';
@@ -103,6 +104,13 @@ export const useBootstrap = (): { ready: boolean } => {
             }),
           );
         }
+      } catch (err) {
+        // A synchronous MMKV read failure (corrupted store, low-disk device)
+        // would otherwise reject `run()` unhandled with no `.catch()` at the
+        // call site — leaving the app stuck on the splash screen forever.
+        // Fall back to a logged-out session so the app still becomes usable.
+        Sentry.captureException(err);
+        dispatch(setHydrated({ user: null, token: null, hasOnboarded: false }));
       } finally {
         // Enforce minimum splash duration so user sees the animation
         const elapsed = Date.now() - start;

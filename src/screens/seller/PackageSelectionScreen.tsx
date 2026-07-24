@@ -38,7 +38,7 @@ export const PackageSelectionScreen: React.FC = () => {
   // Real source for "existing slots" — GET /listings/mine's summary, same
   // value MyAdsScreen and ListAProductScreen use. Replaces the hardcoded 0.
   const { data: myListingsData } = useGetMyListingsQuery();
-  const existingSlots = myListingsData?.summary.slotsRemaining ?? 0;
+  const existingSlots = myListingsData?.summary?.slotsRemaining ?? 0;
 
   const handleBuy = (pkg: WalletPackage) => {
     navigation.navigate('PaymentResult', { packageId: pkg.id });

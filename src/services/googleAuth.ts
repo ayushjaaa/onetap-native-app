@@ -3,6 +3,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import { env } from '@/config/env';
+import { Sentry } from '@/config/sentry';
 
 export type GoogleErrorCode =
   | 'CANCELLED'
@@ -175,16 +176,19 @@ const signIn = async (): Promise<GoogleSignInResult> => {
 const signOut = async (): Promise<void> => {
   try {
     await GoogleSignin.signOut();
-  } catch {
-    // best-effort
+  } catch (err) {
+    // best-effort — local logout proceeds regardless — but still report so
+    // a recurring native fault isn't invisible.
+    Sentry.captureException(err);
   }
 };
 
 const revokeAccess = async (): Promise<void> => {
   try {
     await GoogleSignin.revokeAccess();
-  } catch {
-    // best-effort
+  } catch (err) {
+    // best-effort — see signOut() above.
+    Sentry.captureException(err);
   }
 };
 

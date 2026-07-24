@@ -26,12 +26,14 @@ export const categoriesApi = baseApi.injectEndpoints({
     getTopCategories: builder.query<CategoryNode[], void>({
       query: () => ({ url: '/marketplace/categories/top', method: 'GET' }),
       transformResponse: (response: GetTopCategoriesResponse) => {
-        console.log(
-          '[categoriesApi] getTopCategories raw response (typeof=' +
-            typeof response +
-            '):',
-          response,
-        );
+        if (__DEV__) {
+          console.log(
+            '[categoriesApi] getTopCategories raw response (typeof=' +
+              typeof response +
+              '):',
+            response,
+          );
+        }
         return response?.data?.categories ?? [];
       },
       keepUnusedDataFor: CATEGORY_CACHE_SECONDS,

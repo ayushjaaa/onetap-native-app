@@ -33,21 +33,27 @@ export const ForgotPasswordPhoneScreen: React.FC = () => {
   });
 
   const onSubmit = async (values: PhoneFormData) => {
-    console.log('[forgotPasswordSendOtp] request body:', {
-      phone: values.phone,
-    });
+    if (__DEV__) {
+      console.log('[forgotPasswordSendOtp] request body:', {
+        phone: values.phone,
+      });
+    }
     try {
       const response = await sendOtp({ phone: values.phone }).unwrap();
-      console.log(
-        '[forgotPasswordSendOtp] raw response:',
-        JSON.stringify(response, null, 2),
-      );
+      if (__DEV__) {
+        console.log(
+          '[forgotPasswordSendOtp] raw response:',
+          JSON.stringify(response, null, 2),
+        );
+      }
       navigation.navigate('ForgotPasswordOtp', { phone: values.phone });
     } catch (err) {
-      console.log(
-        '[forgotPasswordSendOtp] raw error response:',
-        JSON.stringify(err, null, 2),
-      );
+      if (__DEV__) {
+        console.log(
+          '[forgotPasswordSendOtp] raw error response:',
+          JSON.stringify(err, null, 2),
+        );
+      }
       const mapped = mapApiError(err as never);
       toast.error({ title: 'Request failed', message: mapped.message });
     }

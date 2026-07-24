@@ -34,4 +34,8 @@ export const env = {
   // the failure UI + retry flow can be exercised without ever reaching a
   // native screen or the backend's signature check.
   E2E_MOCK_PAYMENTS: Config.E2E_MOCK_PAYMENTS === 'true',
+  // Sentry DSN — set only in .env.staging / .env.production. Left unset in
+  // development so local crashes don't pollute the dashboard; sentry.ts
+  // no-ops when this is empty.
+  SENTRY_DSN: Config.SENTRY_DSN ?? '',
 };

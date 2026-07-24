@@ -96,7 +96,9 @@ export const authApi = baseApi.injectEndpoints({
 
     sendOtp: builder.mutation<SendOtpResponse, SendOtpRequest>({
       query: body => {
-        console.log('[sendOtp] request body:', body);
+        if (__DEV__) {
+          console.log('[sendOtp] request body:', body);
+        }
         return {
           url: '/auth/phone/send-otp',
           method: 'POST',

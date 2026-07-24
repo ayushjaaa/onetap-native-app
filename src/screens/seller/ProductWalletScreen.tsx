@@ -58,10 +58,10 @@ export const ProductWalletScreen: React.FC = () => {
   const { data: myListingsData, isLoading: isLoadingSlots } =
     useGetMyListingsQuery();
 
-  const availableSlots = myListingsData?.summary.slotsRemaining ?? 0;
-  const totalPostCreditsPurchased = walletData?.wallet.postCredits ?? 0;
+  const availableSlots = myListingsData?.summary?.slotsRemaining ?? 0;
+  const totalPostCreditsPurchased = walletData?.wallet?.postCredits ?? 0;
   // biddingBalance is stored in paise; formatCurrency expects rupees.
-  const biddingBalance = (walletData?.wallet.biddingBalance ?? 0) / 100;
+  const biddingBalance = (walletData?.wallet?.biddingBalance ?? 0) / 100;
   const postSlotTransactions = (
     txData?.transactions ?? EMPTY_TRANSACTIONS
   ).filter(t => t.field === 'postCredits');

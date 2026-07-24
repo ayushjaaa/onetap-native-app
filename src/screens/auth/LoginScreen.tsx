@@ -50,11 +50,15 @@ export const LoginScreen: React.FC = () => {
       email: trimEmail(values.email),
       password: values.password,
     };
-    console.log('[LOGIN] request payload:', JSON.stringify(payload, null, 2));
+    if (__DEV__) {
+      console.log('[LOGIN] request for:', payload.email);
+    }
 
     try {
       const res = await login(payload).unwrap();
-      console.log('[LOGIN] success response: user', res.data.user.id);
+      if (__DEV__) {
+        console.log('[LOGIN] success response: user', res.data.user.id);
+      }
       const { user, token } = res.data;
 
       if (!token) {
@@ -84,7 +88,9 @@ export const LoginScreen: React.FC = () => {
 
       dispatch(setCredentials({ user, token }));
     } catch (err) {
-      console.log('[LOGIN] error response:', JSON.stringify(err, null, 2));
+      if (__DEV__) {
+        console.log('[LOGIN] error response:', JSON.stringify(err, null, 2));
+      }
       const mapped = mapApiError(err as never);
       toast.error({ title: 'Login failed', message: mapped.message });
     }
@@ -100,31 +106,36 @@ export const LoginScreen: React.FC = () => {
   const handleGoogle = async () => {
     if (googleBusy || googling) return;
     setGoogleBusy(true);
-    console.log('[GOOGLE] handleGoogle started');
+    if (__DEV__) console.log('[GOOGLE] handleGoogle started');
     try {
       const r = await googleAuth.signIn();
-      console.log('[GOOGLE] signIn result.ok:', r.ok);
+      if (__DEV__) console.log('[GOOGLE] signIn result.ok:', r.ok);
 
       if (!r.ok) {
-        console.log('[GOOGLE] signIn failed:', r.code, '-', r.message);
+        if (__DEV__)
+          console.log('[GOOGLE] signIn failed:', r.code, '-', r.message);
         if (r.code === 'CANCELLED' || r.code === 'IN_PROGRESS') return;
         toast.error({ title: 'Google sign-in failed', message: r.message });
         return;
       }
 
-      console.log(
-        '[GOOGLE] calling backend /auth/google for',
-        r.email,
-        '- idToken length:',
-        r.idToken.length,
-      );
+      if (__DEV__) {
+        console.log(
+          '[GOOGLE] calling backend /auth/google for',
+          r.email,
+          '- idToken length:',
+          r.idToken.length,
+        );
+      }
       const res = await googleSignInApi({ idToken: r.idToken }).unwrap();
-      console.log(
-        '[GOOGLE] backend success — needsLocation:',
-        res.data.needsLocation,
-        'has phone:',
-        !!res.data.user.phone,
-      );
+      if (__DEV__) {
+        console.log(
+          '[GOOGLE] backend success — needsLocation:',
+          res.data.needsLocation,
+          'has phone:',
+          !!res.data.user.phone,
+        );
+      }
       const { user, token, needsLocation } = res.data;
 
       if (!token) {
@@ -162,13 +173,15 @@ export const LoginScreen: React.FC = () => {
       dispatch(setCredentials({ user, token }));
     } catch (err) {
       // Backend rejected the idToken or network/server error — clean retry
-      console.log(
-        '[GOOGLE] BACKEND ERROR:',
-        JSON.stringify(err, Object.getOwnPropertyNames(err ?? {}), 2),
-      );
+      if (__DEV__) {
+        console.log(
+          '[GOOGLE] BACKEND ERROR:',
+          JSON.stringify(err, Object.getOwnPropertyNames(err ?? {}), 2),
+        );
+      }
       await googleAuth.signOut();
       const mapped = mapApiError(err as never);
-      console.log('[GOOGLE] mapped error:', mapped);
+      if (__DEV__) console.log('[GOOGLE] mapped error:', mapped);
       toast.error({
         title: 'Google sign-in failed',
         message: mapped.message,

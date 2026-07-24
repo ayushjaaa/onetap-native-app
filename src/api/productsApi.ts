@@ -103,10 +103,12 @@ export const productsApi = baseApi.injectEndpoints({
     getMyListings: builder.query<GetMyListingsResponseData, void>({
       query: () => ({ url: '/marketplace/listings/mine', method: 'GET' }),
       transformResponse: (response: ApiResponse<GetMyListingsResponseData>) => {
-        console.log(
-          '[productsApi] getMyListings raw response:',
-          JSON.stringify(response, null, 2),
-        );
+        if (__DEV__) {
+          console.log(
+            '[productsApi] getMyListings raw response:',
+            JSON.stringify(response, null, 2),
+          );
+        }
         return response.data;
       },
       keepUnusedDataFor: 30,
@@ -229,10 +231,12 @@ export const productsApi = baseApi.injectEndpoints({
       transformResponse: (
         response: ApiResponse<GetTrendingSearchesResponseData>,
       ) => {
-        console.log(
-          '[productsApi] getTrendingSearches raw response:',
-          JSON.stringify(response, null, 2),
-        );
+        if (__DEV__) {
+          console.log(
+            '[productsApi] getTrendingSearches raw response:',
+            JSON.stringify(response, null, 2),
+          );
+        }
         return response.data;
       },
       // Aggregate over a rolling window server-side — safe to cache a bit

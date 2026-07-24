@@ -7,9 +7,14 @@ import {
 } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
 import { baseApi } from '@/api/baseApi';
-import authReducer, { logout } from '@/store/authSlice';
+import authReducer, {
+  logout,
+  setCredentials,
+  setUser,
+} from '@/store/authSlice';
 import locationReducer from '@/store/locationSlice';
 import { secureStorage } from '@/services/secureStorage';
+import { Sentry } from '@/config/sentry';
 
 /**
  * Global 401 handler — auto-logout when any API call returns 401.
@@ -41,6 +46,19 @@ const authErrorMiddleware: Middleware = api => next => action => {
   return next(action);
 };
 
+// Correlates crash reports to accounts (non-PII: userId only) — single fix
+// point instead of calling Sentry.setUser at every login/logout call site.
+const sentryUserMiddleware: Middleware = () => next => action => {
+  if (setCredentials.match(action) || setUser.match(action)) {
+    const user =
+      'user' in action.payload ? action.payload.user : action.payload;
+    Sentry.setUser({ id: user.id });
+  } else if (logout.match(action)) {
+    Sentry.setUser(null);
+  }
+  return next(action);
+};
+
 export const store = configureStore({
   reducer: {
     auth: authReducer,
@@ -54,7 +72,8 @@ export const store = configureStore({
       },
     })
       .concat(baseApi.middleware)
-      .concat(authErrorMiddleware),
+      .concat(authErrorMiddleware)
+      .concat(sentryUserMiddleware),
 });
 
 // RN has no window 'visibilitychange'/'online' events, so RTK Query's default
