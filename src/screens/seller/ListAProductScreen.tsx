@@ -398,7 +398,7 @@ export const ListAProductScreen: React.FC = () => {
               const photo = photos[i];
               if (photo) {
                 return (
-                  <View key={i} style={styles.photoTile}>
+                  <View key={photo.url} style={styles.photoTile}>
                     <Image
                       source={{ uri: buildMediaUrl(photo.url) }}
                       style={styles.photoImg}
@@ -422,7 +422,7 @@ export const ListAProductScreen: React.FC = () => {
               if (i === photos.length) {
                 return (
                   <Pressable
-                    key={i}
+                    key={`add-${i}`}
                     testID="add-photo-tile"
                     onPress={handleAddPhoto}
                     disabled={isUploading}
@@ -445,7 +445,7 @@ export const ListAProductScreen: React.FC = () => {
               }
               return (
                 <View
-                  key={i}
+                  key={`ghost-${i}`}
                   style={[styles.photoTile, styles.photoTileGhost]}
                 />
               );

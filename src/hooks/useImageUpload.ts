@@ -40,7 +40,8 @@ export function useImageUpload(target: UploadTarget) {
       }
       const result = await uploadListing(image).unwrap();
       return result.url;
-    } catch {
+    } catch (err) {
+      console.warn(`[useImageUpload] upload failed for ${image.name}:`, err);
       return null;
     }
   };
@@ -64,12 +65,28 @@ export function useImageUpload(target: UploadTarget) {
         : await pickImagesFromLibrary(maxCount);
     if (images.length === 0) return [];
 
-    const uploaded = await Promise.all(images.map(uploadOne));
+    // Uploaded one at a time, not via Promise.all — firing every multipart
+    // POST concurrently made them contend for bandwidth against the shared
+    // 15s request timeout (baseApi.ts), so a slow one could time out
+    // client-side even though the file had already finished writing on the
+    // server, silently dropping it from the returned urls below.
+    const uploaded: (string | null)[] = [];
+    for (const image of images) {
+      uploaded.push(await uploadOne(image));
+    }
     const urls = uploaded.filter((url): url is string => url != null);
-    if (urls.length < images.length) {
+    const failedCount = images.length - urls.length;
+    if (failedCount > 0) {
+      // Surface exactly how many were dropped — a single generic toast here
+      // previously made a real per-image failure (e.g. one image exceeding a
+      // size limit) indistinguishable from "nothing happened", since the
+      // photo grid just silently renders one fewer tile than selected.
       toast.error({
-        title: "Couldn't upload photo",
-        message: 'Network issue — please try again.',
+        title:
+          failedCount === images.length
+            ? "Couldn't upload photo"
+            : `${failedCount} of ${images.length} photos couldn't upload`,
+        message: 'Network issue or file too large — please try again.',
       });
     }
     return urls;
