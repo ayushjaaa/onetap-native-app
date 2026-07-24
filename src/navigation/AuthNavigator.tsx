@@ -17,10 +17,17 @@ import { SignUpStep4LocationScreen } from '@/screens/auth/signup/SignUpStep4Loca
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
-export const AuthNavigator: React.FC = () => {
+interface AuthNavigatorProps {
+  initialRouteName?: keyof AuthStackParamList;
+}
+
+export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
+  initialRouteName,
+}) => {
   return (
     <SignupProvider>
       <Stack.Navigator
+        initialRouteName={initialRouteName}
         screenOptions={{
           headerShown: false,
           animation: 'slide_from_right',

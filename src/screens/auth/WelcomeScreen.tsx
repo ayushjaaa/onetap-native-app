@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '@/components/common/Screen';
 import { Button } from '@/components/common/Button';
+// Kept for the commented-out Google button below; re-enable once the OAuth
+// SHA-1/package mismatch is fixed (see comment near the JSX usage).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { SocialButton } from '@/components/auth/SocialButton';
 import { useToast } from '@/hooks/useToast';
 import { useGoogleSignInMutation } from '@/api/authApi';
@@ -21,8 +24,7 @@ export const WelcomeScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
   const dispatch = useAppDispatch();
-  const [googleSignInApi, { isLoading: googling }] =
-    useGoogleSignInMutation();
+  const [googleSignInApi, { isLoading: googling }] = useGoogleSignInMutation();
   const [googleBusy, setGoogleBusy] = useState(false);
 
   const handleSignUp = () => {
@@ -33,6 +35,9 @@ export const WelcomeScreen: React.FC = () => {
     navigation.navigate('Login');
   };
 
+  // Kept for the commented-out Google button below; re-enable once the OAuth
+  // SHA-1/package mismatch is fixed.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleGoogle = async () => {
     if (googleBusy || googling) return;
     setGoogleBusy(true);
@@ -63,12 +68,22 @@ export const WelcomeScreen: React.FC = () => {
       );
       const { user, token, needsLocation } = res.data;
 
+      if (!token) {
+        toast.error({
+          title: 'Google sign-in failed',
+          message: 'Something went wrong. Please try again.',
+        });
+        return;
+      }
+      // Persist immediately — downstream screens read it fresh from
+      // Keychain instead of carrying the raw JWT through nav params.
+      await secureStorage.saveToken(token);
+
       // New Google user (no phone yet) → Phone+OTP flow
       if (!user.phone) {
         navigation.navigate('Phone', {
           email: user.email,
           user,
-          token,
           fromGoogle: true,
           needsLocation,
         });
@@ -80,13 +95,11 @@ export const WelcomeScreen: React.FC = () => {
         navigation.navigate('SignUpLocation', {
           fromGoogle: true,
           user,
-          token,
         });
         return;
       }
 
-      // Returning Google user — fully onboarded → persist & enter app
-      await secureStorage.saveToken(token);
+      // Returning Google user — fully onboarded → enter app
       dispatch(setCredentials({ user, token }));
     } catch (err) {
       console.log(
@@ -106,7 +119,7 @@ export const WelcomeScreen: React.FC = () => {
   };
 
   return (
-    <Screen scrollable>
+    <Screen scrollable testID="welcome-screen">
       <View style={styles.logoBlock}>
         <View style={styles.logoCircle}>
           <Image
@@ -124,13 +137,18 @@ export const WelcomeScreen: React.FC = () => {
       </View>
 
       <View style={styles.actions}>
-        <Button title="Sign In" onPress={handleLogin} />
+        <Button
+          testID="welcome-sign-in-button"
+          title="Sign In"
+          onPress={handleLogin}
+        />
         <View style={styles.dividerRow}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>or</Text>
           <View style={styles.dividerLine} />
         </View>
         <Button
+          testID="welcome-create-account-button"
           title="Create Account"
           variant="outline"
           onPress={handleSignUp}

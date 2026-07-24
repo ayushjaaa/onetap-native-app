@@ -30,7 +30,6 @@ export const SignUpStep4LocationScreen: React.FC = () => {
   const route = useRoute<Route>();
   const fromGoogle = route.params?.fromGoogle === true;
   const googleUser = route.params?.user;
-  const googleToken = route.params?.token;
   const { data, update, reset } = useSignupContext();
   const dispatch = useAppDispatch();
   const toast = useToast();
@@ -105,8 +104,17 @@ export const SignUpStep4LocationScreen: React.FC = () => {
       return;
     }
 
-    // Google flow: user already exists & token is in route params.
-    // Skip register, just attach location via updateProfile, then dispatch.
+    // Google flow: user already exists & token was persisted to Keychain
+    // right after Google sign-in. Skip register, just attach location via
+    // updateProfile, then dispatch using the token read fresh from Keychain.
+    const googleToken = fromGoogle ? await secureStorage.getToken() : null;
+    if (fromGoogle && (!googleUser || !googleToken)) {
+      toast.error({
+        title: 'Session expired',
+        message: 'Please sign in again.',
+      });
+      return;
+    }
     if (fromGoogle && googleUser && googleToken) {
       try {
         await updateProfile({
@@ -118,8 +126,6 @@ export const SignUpStep4LocationScreen: React.FC = () => {
           location_pincode: resolved.pincode,
         }).unwrap();
 
-        // Token already saved to Keychain in OtpScreen (or skipped phone path)
-        await secureStorage.saveToken(googleToken);
         dispatch(setCredentials({ user: googleUser, token: googleToken }));
 
         toast.success({
@@ -140,6 +146,7 @@ export const SignUpStep4LocationScreen: React.FC = () => {
     // Manual signup flow (existing)
     const payload = {
       name: data.name,
+      phone: data.phone,
       email: data.email,
       password: data.password,
       lat: resolved.latitude,
@@ -172,14 +179,20 @@ export const SignUpStep4LocationScreen: React.FC = () => {
     }
   };
 
-  const isFetching = status === 'requesting' || status === 'fetching';
-  const isBlocked =
-    status === 'permission_blocked' || status === 'permission_denied';
+  // 'idle' is the pre-mount-effect frame — treat it as fetching too so the
+  // button doesn't briefly render "Retry" before the fetch has even started.
+  const isFetching =
+    status === 'idle' || status === 'requesting' || status === 'fetching';
+  // Permanently blocked needs Settings; a one-time denial can still be
+  // re-prompted in-app, so keep the two states distinct.
+  const isBlocked = status === 'permission_blocked';
+  const isDenied = status === 'permission_denied';
 
   return (
-    <Screen scrollable>
+    <Screen scrollable testID="signup-step4-screen">
       <Header
         title={fromGoogle ? 'Almost done' : 'Sign Up'}
+        showBack={!fromGoogle}
         onBack={fromGoogle ? undefined : () => navigation.goBack()}
       />
       {!fromGoogle && <StepIndicator current={4} total={4} />}
@@ -232,8 +245,11 @@ export const SignUpStep4LocationScreen: React.FC = () => {
           <View style={styles.btnGap} />
           <Button title="Try Again" variant="outline" onPress={fetchLocation} />
         </>
+      ) : isDenied ? (
+        <Button title="Try Again" onPress={fetchLocation} />
       ) : status === 'success' ? (
         <Button
+          testID="signup-create-account-button"
           title={fromGoogle ? 'Continue' : 'Create Account'}
           onPress={handleCreateAccount}
           loading={registering || updatingProfile}
@@ -241,6 +257,7 @@ export const SignUpStep4LocationScreen: React.FC = () => {
         />
       ) : (
         <Button
+          testID="signup-location-retry-button"
           title={isFetching ? 'Fetching…' : 'Retry'}
           onPress={fetchLocation}
           disabled={isFetching}

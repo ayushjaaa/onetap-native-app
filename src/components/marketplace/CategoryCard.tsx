@@ -34,6 +34,7 @@ import {
 import { colors, fontSize, layout, radius, spacing } from '@/theme';
 
 const ICON_SIZE = layout.iconSize.lg;
+const NAME_LINE_HEIGHT_MULTIPLIER = 1.3;
 
 const ICON_MAP: Record<string, LucideIcon> = {
   phone_iphone: Smartphone,
@@ -148,5 +149,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginTop: spacing.sm,
+    lineHeight: fontSize.xs * NAME_LINE_HEIGHT_MULTIPLIER,
+    // Reserve space for 2 lines regardless of actual line count, so a
+    // short one-line name ("Pets") and a long two-line name ("Home
+    // Appliances") produce the exact same card height in the grid.
+    height: fontSize.xs * NAME_LINE_HEIGHT_MULTIPLIER * 2,
   },
 });

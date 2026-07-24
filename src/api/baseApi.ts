@@ -21,6 +21,9 @@ const rawBaseQuery = fetchBaseQuery({
   timeout: 15000,
   prepareHeaders: async (headers, api) => {
     const token = await secureStorage.getToken();
+    if (api.endpoint === 'sendOtp') {
+      console.log('[sendOtp] auth token:', token);
+    }
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
@@ -52,6 +55,11 @@ export const baseQueryWithReauth: BaseQueryFn<
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
+  // RN has no window focus/online events, so these are inert unless a
+  // platform-specific listener dispatches onFocus/onOffline — wired via
+  // AppState in src/app/store.ts's setupListeners() call.
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
   tagTypes: [
     'User',
     'Product',

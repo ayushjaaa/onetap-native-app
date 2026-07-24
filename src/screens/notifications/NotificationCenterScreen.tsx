@@ -72,12 +72,13 @@ export const NotificationCenterScreen: React.FC = () => {
   const [markAllRead] = useMarkAllNotificationsReadMutation();
   const [markRead] = useMarkNotificationReadMutation();
 
-  const allNotifications = data?.notifications ?? EMPTY_NOTIFICATIONS;
-  const notifications = useMemo(
-    () => allNotifications.filter(n => n.status !== 'read'),
-    [allNotifications],
+  // Show every notification, read or not — marking one read (on tap) must
+  // not make it vanish from the list, or a user could never revisit it.
+  const notifications = data?.notifications ?? EMPTY_NOTIFICATIONS;
+  const unreadCount = useMemo(
+    () => notifications.filter(n => n.status !== 'read').length,
+    [notifications],
   );
-  const unreadCount = notifications.length;
 
   const handleMarkAllRead = () => {
     void markAllRead();
@@ -128,7 +129,7 @@ export const NotificationCenterScreen: React.FC = () => {
           <EmptyState
             icon={Bell}
             title="All quiet for now"
-            message="Aapke saare alerts yahaan dikhayi denge."
+            message="All your alerts will show up here."
           />
         ) : (
           notifications.map(n => (
@@ -154,6 +155,7 @@ interface RowProps {
 const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
   const Icon = TYPE_ICON[n.type] ?? Bell;
   const tint = TYPE_COLOUR[n.type] ?? colors.textMuted;
+  const isUnread = n.status !== 'read';
 
   return (
     <Pressable
@@ -173,12 +175,12 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
       <View style={styles.rowBody}>
         <View style={styles.rowTopLine}>
           <Text
-            style={[styles.rowTitle, styles.rowTitleUnread]}
+            style={[styles.rowTitle, isUnread && styles.rowTitleUnread]}
             numberOfLines={2}
           >
             {n.title}
           </Text>
-          <Text style={[styles.rowTime, styles.rowTimeUnread]}>
+          <Text style={[styles.rowTime, isUnread && styles.rowTimeUnread]}>
             {formatRelativeShort(n.createdAt)}
           </Text>
         </View>
@@ -189,7 +191,7 @@ const NotificationRow: React.FC<RowProps> = ({ n, onPress }) => {
         ) : null}
       </View>
 
-      <View style={styles.unreadDot} />
+      {isUnread ? <View style={styles.unreadDot} /> : null}
     </Pressable>
   );
 };

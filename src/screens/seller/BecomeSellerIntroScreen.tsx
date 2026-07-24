@@ -73,10 +73,16 @@ export const BecomeSellerIntroScreen: React.FC = () => {
   const user = useAppSelector(state => state.auth.user);
   // Only needed to show real progress on step 2 ("Pick a package") — skip
   // the fetch entirely until the user has at least started onboarding.
-  const { data: walletData } = useGetWalletQuery(undefined, {
-    skip: !user?.sellerType,
-  });
+  const { data: walletData, isLoading: walletLoading } = useGetWalletQuery(
+    undefined,
+    { skip: !user?.sellerType },
+  );
   const [fetchMe, { isFetching: checkingStatus }] = useLazyGetMeQuery();
+
+  // Wallet is the only source for `hasCredits`, which every step/CTA
+  // decision below depends on — without this, a seller who already bought a
+  // package briefly renders as if still on "Pick a package" on every mount.
+  const pendingWalletCheck = Boolean(user?.sellerType) && walletLoading;
 
   const sellerType = user?.sellerType;
   const profileSubmitted = Boolean(user?.sellerProfileSubmitted);
@@ -95,8 +101,9 @@ export const BecomeSellerIntroScreen: React.FC = () => {
 
   useEffect(() => {
     if (sellerActive) {
-      // Already a seller — bounce them to MyAds without polluting back stack.
-      navigation.replace('Tabs');
+      // Just got approved — send them straight into the listing form so
+      // they can post immediately, instead of dropping them on Home.
+      navigation.replace('ListProduct');
     }
   }, [sellerActive, navigation]);
 
@@ -170,7 +177,11 @@ export const BecomeSellerIntroScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      testID="become-seller-intro-screen"
+      style={styles.safe}
+      edges={['top']}
+    >
       <View style={styles.topBar}>
         <Pressable
           onPress={navigation.goBack}
@@ -192,68 +203,74 @@ export const BecomeSellerIntroScreen: React.FC = () => {
           <Text style={styles.heading}>Sell on OneTap in 4 steps</Text>
         </View>
 
-        <View style={styles.stepsWrap}>
-          {STEPS.map((step, index) => {
-            const done = stepDone[index];
-            const isCurrent =
-              !done && onboardingStarted && index === currentStepIndex;
-            const isRejectedStep = rejected && index === currentStepIndex;
-            return (
-              <View
-                key={step.number}
-                style={[
-                  styles.stepCard,
-                  done && styles.stepCardDone,
-                  isCurrent && styles.stepCardCurrent,
-                  isRejectedStep && styles.stepCardRejected,
-                ]}
-              >
+        {pendingWalletCheck ? (
+          <View style={styles.stepsLoading}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <View style={styles.stepsWrap}>
+            {STEPS.map((step, index) => {
+              const done = stepDone[index];
+              const isCurrent =
+                !done && onboardingStarted && index === currentStepIndex;
+              const isRejectedStep = rejected && index === currentStepIndex;
+              return (
                 <View
+                  key={step.number}
                   style={[
-                    styles.stepNumberCircle,
-                    done && styles.stepNumberCircleDone,
-                    isCurrent && styles.stepNumberCircleCurrent,
-                    isRejectedStep && styles.stepNumberCircleRejected,
+                    styles.stepCard,
+                    done && styles.stepCardDone,
+                    isCurrent && styles.stepCardCurrent,
+                    isRejectedStep && styles.stepCardRejected,
                   ]}
                 >
-                  {isRejectedStep ? (
-                    <XCircle size={18} color={colors.white} />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.stepNumberText,
-                        (done || isCurrent) && styles.stepNumberTextDone,
-                      ]}
-                    >
-                      {done ? '✓' : step.number}
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.stepIconWrap}>
-                  <step.Icon
-                    size={layout.iconSize.base}
-                    color={isRejectedStep ? colors.error : colors.primary}
-                  />
-                </View>
-                <View style={styles.stepTextWrap}>
-                  <Text style={styles.stepTitle}>{step.title}</Text>
-                  <Text
+                  <View
                     style={[
-                      styles.stepSubtitle,
-                      isRejectedStep && styles.stepSubtitleRejected,
+                      styles.stepNumberCircle,
+                      done && styles.stepNumberCircleDone,
+                      isCurrent && styles.stepNumberCircleCurrent,
+                      isRejectedStep && styles.stepNumberCircleRejected,
                     ]}
                   >
-                    {isRejectedStep
-                      ? 'Application not approved'
-                      : isCurrent
-                      ? "You're here"
-                      : step.subtitle}
-                  </Text>
+                    {isRejectedStep ? (
+                      <XCircle size={18} color={colors.white} />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.stepNumberText,
+                          (done || isCurrent) && styles.stepNumberTextDone,
+                        ]}
+                      >
+                        {done ? '✓' : step.number}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.stepIconWrap}>
+                    <step.Icon
+                      size={layout.iconSize.base}
+                      color={isRejectedStep ? colors.error : colors.primary}
+                    />
+                  </View>
+                  <View style={styles.stepTextWrap}>
+                    <Text style={styles.stepTitle}>{step.title}</Text>
+                    <Text
+                      style={[
+                        styles.stepSubtitle,
+                        isRejectedStep && styles.stepSubtitleRejected,
+                      ]}
+                    >
+                      {isRejectedStep
+                        ? 'Application not approved'
+                        : isCurrent
+                        ? "You're here"
+                        : step.subtitle}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        )}
 
         <View style={styles.reassuranceRow}>
           <View style={styles.reassuranceItem}>
@@ -272,7 +289,10 @@ export const BecomeSellerIntroScreen: React.FC = () => {
 
       <View style={styles.bottomBar}>
         {rejected ? (
-          <Text style={styles.rejectedHint}>
+          <Text
+            testID="become-seller-rejected-hint"
+            style={styles.rejectedHint}
+          >
             Your seller application wasn't approved.
             {user?.kycRejectionReason
               ? ` Reason: ${user.kycRejectionReason}`
@@ -282,22 +302,27 @@ export const BecomeSellerIntroScreen: React.FC = () => {
           </Text>
         ) : (
           <>
-            {awaitingApproval && (
+            {!pendingWalletCheck && awaitingApproval && (
               <Text style={styles.waitingHint}>
                 Your account is under review. You can't post a product until an
                 admin approves it.
               </Text>
             )}
             <Pressable
+              testID="become-seller-cta-button"
               onPress={handleStart}
-              disabled={checkingStatus}
+              disabled={checkingStatus || pendingWalletCheck}
               style={({ pressed }) => [
                 styles.primaryBtn,
-                checkingStatus && styles.primaryBtnDisabled,
-                pressed && !checkingStatus && styles.primaryBtnPressed,
+                (checkingStatus || pendingWalletCheck) &&
+                  styles.primaryBtnDisabled,
+                pressed &&
+                  !checkingStatus &&
+                  !pendingWalletCheck &&
+                  styles.primaryBtnPressed,
               ]}
             >
-              {checkingStatus ? (
+              {checkingStatus || pendingWalletCheck ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
                 <Text style={styles.primaryBtnText}>{ctaLabel}</Text>
@@ -357,6 +382,10 @@ const styles = StyleSheet.create({
   },
   stepsWrap: {
     gap: spacing.md,
+  },
+  stepsLoading: {
+    paddingVertical: spacing['2xl'],
+    alignItems: 'center',
   },
   stepCard: {
     flexDirection: 'row',

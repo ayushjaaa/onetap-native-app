@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { Dimensions, StyleSheet, TextInput, View } from 'react-native';
 import { colors, radius, spacing, typography } from '@/theme';
 import { OTP_LENGTH } from '@/config/constants';
 
@@ -8,13 +8,25 @@ interface OtpInputProps {
   onChangeText: (text: string) => void;
   hasError?: boolean;
   autoFocus?: boolean;
+  disabled?: boolean;
 }
+
+// Box size derived from screen width so all OTP_LENGTH boxes always fit
+// on-screen instead of overflowing off the side on narrower devices.
+const CONTAINER_PADDING = spacing.xl * 2;
+const BOX_GAP = spacing.sm;
+const availableWidth =
+  Dimensions.get('window').width -
+  CONTAINER_PADDING -
+  BOX_GAP * (OTP_LENGTH - 1);
+const BOX_SIZE = Math.min(60, Math.floor(availableWidth / OTP_LENGTH));
 
 export const OtpInput: React.FC<OtpInputProps> = ({
   value,
   onChangeText,
   hasError = false,
   autoFocus = true,
+  disabled = false,
 }) => {
   const inputs = useRef<Array<TextInput | null>>([]);
 
@@ -68,6 +80,7 @@ export const OtpInput: React.FC<OtpInputProps> = ({
       {Array.from({ length: OTP_LENGTH }).map((_, i) => (
         <TextInput
           key={i}
+          testID={`otp-box-${i}`}
           ref={(ref: TextInput | null) => {
             inputs.current[i] = ref;
           }}
@@ -75,6 +88,7 @@ export const OtpInput: React.FC<OtpInputProps> = ({
             styles.box,
             value[i] && styles.boxFilled,
             hasError && styles.boxError,
+            disabled && styles.boxDisabled,
           ]}
           value={value[i] || ''}
           onChangeText={text => handleChange(text, i)}
@@ -84,6 +98,7 @@ export const OtpInput: React.FC<OtpInputProps> = ({
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
           selectionColor={colors.primary}
+          editable={!disabled}
         />
       ))}
     </View>
@@ -93,13 +108,14 @@ export const OtpInput: React.FC<OtpInputProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: BOX_GAP,
     paddingHorizontal: spacing.xl,
   },
   box: {
-    width: 60,
-    height: 60,
+    width: BOX_SIZE,
+    height: BOX_SIZE,
     borderRadius: radius.base,
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -115,5 +131,8 @@ const styles = StyleSheet.create({
   },
   boxError: {
     borderColor: colors.error,
+  },
+  boxDisabled: {
+    opacity: 0.5,
   },
 });

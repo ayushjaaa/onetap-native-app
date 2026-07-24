@@ -111,11 +111,6 @@ export const WalletReceiptSheet: React.FC<WalletReceiptSheetProps> = ({
                     label="Type"
                     value={KIND_LABEL[transaction.kind] ?? transaction.kind}
                   />
-                  <ReceiptRow
-                    label="Reference ID"
-                    value={transaction._id}
-                    monospace
-                  />
 
                   {paymentOrder ? (
                     <>

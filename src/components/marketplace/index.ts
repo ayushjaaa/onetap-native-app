@@ -36,3 +36,5 @@ export type {
   CategoryPickResult,
   CategoryPickerSheetProps,
 } from './CategoryPickerSheet';
+
+export { RadiusFilterSheet } from './RadiusFilterSheet';

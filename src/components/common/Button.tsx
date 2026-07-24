@@ -25,6 +25,7 @@ interface ButtonProps {
   rightIcon?: React.ReactNode;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  testID?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -39,6 +40,7 @@ export const Button: React.FC<ButtonProps> = ({
   rightIcon,
   style,
   textStyle,
+  testID,
 }) => {
   const isDisabled = disabled || loading;
 
@@ -47,6 +49,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       disabled={isDisabled}
       style={({ pressed }) => [

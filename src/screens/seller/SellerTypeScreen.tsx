@@ -41,11 +41,7 @@ const INDIVIDUAL: TypeCardConfig = {
   type: 'individual',
   Icon: UserIcon,
   title: 'Individual seller',
-  bullets: [
-    'Activate instantly',
-    'India mein kahin bhi bechen',
-    'Koi extra fee nahi',
-  ],
+  bullets: ['Activate instantly', 'Sell anywhere in India', 'No extra fees'],
 };
 
 const WHOLESALE: TypeCardConfig = {
@@ -115,7 +111,11 @@ export const SellerTypeScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      testID="seller-type-screen"
+      style={styles.safe}
+      edges={['top']}
+    >
       <View style={styles.header}>
         <Pressable
           onPress={navigation.goBack}
@@ -135,7 +135,7 @@ export const SellerTypeScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.subCopy}>
-          Aap baad mein profile se change kar sakte ho
+          You can change this later from your profile
         </Text>
 
         {/* Individual card */}
@@ -159,6 +159,7 @@ export const SellerTypeScreen: React.FC = () => {
 
       <View style={styles.bottomBar}>
         <Pressable
+          testID="seller-type-continue-button"
           onPress={handleContinue}
           disabled={selected !== 'individual' || isSubmitting}
           style={({ pressed }) => [
@@ -194,6 +195,7 @@ const SellerTypeCard: React.FC<SellerTypeCardProps> = ({
 }) => {
   return (
     <Pressable
+      testID={`seller-type-card-${config.type}`}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}

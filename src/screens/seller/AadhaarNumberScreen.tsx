@@ -21,14 +21,7 @@ import {
   stripAadhaar,
   validateAadhaar,
 } from '@/utils/aadhaar';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'AadhaarNumber'>;
@@ -36,7 +29,7 @@ type Nav = NativeStackNavigationProp<MainStackParamList, 'AadhaarNumber'>;
 const ERROR_COPY: Record<AadhaarValidationError, string> = {
   incomplete: 'Enter all 12 digits',
   invalid_first_digit: "Aadhaar can't start with 0 or 1",
-  invalid_checksum: 'Ye Aadhaar number sahi nahi lag raha',
+  invalid_checksum: "This doesn't look like a valid Aadhaar number",
 };
 
 export const AadhaarNumberScreen: React.FC = () => {
@@ -94,7 +87,7 @@ export const AadhaarNumberScreen: React.FC = () => {
   const showError = touched && !!validation.error && digits.length > 0;
   const helperText = showError
     ? ERROR_COPY[validation.error!]
-    : 'Make sure your Aadhaar-linked mobile number is reachable — OTP wahaan jayegi.';
+    : 'Make sure your Aadhaar-linked mobile number is reachable — the OTP will be sent there.';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -124,8 +117,8 @@ export const AadhaarNumberScreen: React.FC = () => {
               style={styles.privacyIcon}
             />
             <Text style={styles.privacyText}>
-              Aapka Aadhaar sirf UIDAI ke saath securely share hota hai via KYC
-              partner. Hum sirf last 4 digits save karte hain.
+              Your Aadhaar is shared securely with UIDAI only, via our KYC
+              partner. We only store the last 4 digits.
             </Text>
           </View>
 

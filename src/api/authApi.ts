@@ -14,8 +14,10 @@ import type {
   ResendOtpResponse,
   VerifyOtpRequest,
   VerifyOtpResponse,
-  ForgotPasswordRequest,
-  ForgotPasswordResponse,
+  ForgotPasswordSendOtpRequest,
+  ForgotPasswordSendOtpResponse,
+  ForgotPasswordVerifyOtpRequest,
+  ForgotPasswordVerifyOtpResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
   GoogleSignInRequest,
@@ -93,11 +95,14 @@ export const authApi = baseApi.injectEndpoints({
     }),
 
     sendOtp: builder.mutation<SendOtpResponse, SendOtpRequest>({
-      query: body => ({
-        url: '/auth/phone/send-otp',
-        method: 'POST',
-        body,
-      }),
+      query: body => {
+        console.log('[sendOtp] request body:', body);
+        return {
+          url: '/auth/phone/send-otp',
+          method: 'POST',
+          body,
+        };
+      },
     }),
 
     resendOtp: builder.mutation<ResendOtpResponse, void>({
@@ -115,12 +120,23 @@ export const authApi = baseApi.injectEndpoints({
       }),
     }),
 
-    forgotPassword: builder.mutation<
-      ForgotPasswordResponse,
-      ForgotPasswordRequest
+    forgotPasswordSendOtp: builder.mutation<
+      ForgotPasswordSendOtpResponse,
+      ForgotPasswordSendOtpRequest
     >({
       query: body => ({
-        url: '/auth/forgot-password',
+        url: '/auth/forgot-password/send-otp',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    forgotPasswordVerifyOtp: builder.mutation<
+      ForgotPasswordVerifyOtpResponse,
+      ForgotPasswordVerifyOtpRequest
+    >({
+      query: body => ({
+        url: '/auth/forgot-password/verify-otp',
         method: 'POST',
         body,
       }),
@@ -180,7 +196,8 @@ export const {
   useSendOtpMutation,
   useResendOtpMutation,
   useVerifyOtpMutation,
-  useForgotPasswordMutation,
+  useForgotPasswordSendOtpMutation,
+  useForgotPasswordVerifyOtpMutation,
   useResetPasswordMutation,
   useSetSellerTypeMutation,
   useSubmitIndividualSellerProfileMutation,

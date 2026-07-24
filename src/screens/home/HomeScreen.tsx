@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,19 +8,32 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Search, Plus, Bell, MapPin } from 'lucide-react-native';
+import {
+  Search,
+  Plus,
+  Bell,
+  MapPin,
+  SlidersHorizontal,
+} from 'lucide-react-native';
 import type { MainStackParamList } from '@/types/navigation.types';
 import {
   BecomeSellerBanner,
   type BecomeSellerBannerState,
   CategoryCard,
   ListingCard,
+  RadiusFilterSheet,
   TrendingHeader,
 } from '@/components/marketplace';
 import { Shimmer, ShimmerCard } from '@/components/common/Shimmer';
+import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import {
+  setRealLocationRadiusKm,
+  setBrowsingLocationRadiusKm,
+} from '@/store/locationSlice';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { useGetTopCategoriesQuery } from '@/api/categoriesApi';
 import { useGetTrendingListingsQuery } from '@/api/productsApi';
@@ -28,6 +41,7 @@ import { useGetUnreadCountQuery } from '@/api/notificationApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import type { CategoryNode, Listing } from '@/types';
 import { formatRelativeShort } from '@/data/listingsStub';
+import { buildMediaUrl } from '@/utils/media';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 
 interface ListingCardData {
@@ -45,7 +59,7 @@ const formatPricePaise = (paise: number): string =>
 
 const toCardData = (listing: Listing): ListingCardData => ({
   id: listing._id,
-  image: listing.photos[0],
+  image: listing.photos[0] ? buildMediaUrl(listing.photos[0]) : undefined,
   title: listing.title,
   price: formatPricePaise(listing.price),
   location: listing.address ?? '',
@@ -69,8 +83,19 @@ const resolveSellerBannerState = (
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const isFocused = useIsFocused();
+  const dispatch = useAppDispatch();
   const user = useAppSelector(state => state.auth.user);
-  const location = useAppSelector(state => state.location);
+  const location = useEffectiveLocation();
+  const [radiusSheetOpen, setRadiusSheetOpen] = useState(false);
+
+  const handleApplyRadius = (radiusKm: number) => {
+    if (location.isOverride) {
+      dispatch(setBrowsingLocationRadiusKm(radiusKm));
+    } else {
+      dispatch(setRealLocationRadiusKm(radiusKm));
+    }
+  };
 
   const sellerBannerState = resolveSellerBannerState(user);
 
@@ -89,15 +114,25 @@ export const HomeScreen: React.FC = () => {
   console.log('[HomeScreen] top categories response:', topCategories);
   console.log('[HomeScreen] top categories error:', categoriesError);
 
-  const hasLocation = location.latitude != null && location.longitude != null;
+  const { hasLocation } = location;
   const {
     data: trendingData,
     isLoading: isLoadingTrending,
     error: trendingError,
   } = useGetTrendingListingsQuery(
     hasLocation
-      ? { lat: location.latitude as number, lng: location.longitude as number }
+      ? {
+          lat: location.latitude as number,
+          lng: location.longitude as number,
+          radius: location.radiusKm,
+        }
       : skipToken,
+    // Home stays mounted in the background (bottom-tab navigator), so it never
+    // remounts/refetches on its own when navigating back from a listing whose
+    // price/etc. changed elsewhere (e.g. an admin approving a seller's edit
+    // request from a separate app). Poll only while this tab is actually
+    // visible so the list can't go stale indefinitely while sitting idle.
+    { pollingInterval: isFocused ? 20000 : 0 },
   );
 
   console.log(
@@ -133,6 +168,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleCategoryPress = (category: CategoryNode) => {
+    console.log('[HomeScreen] category pressed:', category);
     navigation.navigate('CategoryBrowse', {
       category: { id: category.id, name: category.name },
     });
@@ -154,17 +190,47 @@ export const HomeScreen: React.FC = () => {
             <Text style={styles.greeting}>
               Hi {user?.name?.split(' ')[0] ?? 'there'} 👋
             </Text>
-            <View style={styles.locationRow}>
-              <MapPin size={layout.iconSize.sm} color={colors.textMuted} />
-              <Text style={styles.locationText} numberOfLines={1}>
+            <Pressable
+              style={styles.locationRow}
+              onPress={() => navigation.navigate('ChangeLocation')}
+              hitSlop={spacing.sm}
+              testID="home-location-row"
+              accessibilityRole="button"
+              accessibilityLabel="Change browsing location"
+            >
+              <MapPin
+                size={layout.iconSize.sm}
+                color={location.isOverride ? colors.primary : colors.textMuted}
+              />
+              <Text
+                style={[
+                  styles.locationText,
+                  location.isOverride && styles.locationTextOverride,
+                ]}
+                numberOfLines={1}
+              >
                 {location.city
                   ? `${location.city}${
                       location.state ? `, ${location.state}` : ''
                     }`
                   : 'Location unavailable'}
+                {location.isOverride ? ' (browsing)' : ''}
               </Text>
-            </View>
+            </Pressable>
           </View>
+          <Pressable
+            style={styles.bellBtn}
+            hitSlop={spacing.sm}
+            onPress={() => setRadiusSheetOpen(true)}
+            testID="home-radius-filter-button"
+            accessibilityRole="button"
+            accessibilityLabel="Set search radius"
+          >
+            <SlidersHorizontal
+              size={layout.iconSize.md}
+              color={colors.textPrimary}
+            />
+          </Pressable>
           <Pressable
             style={styles.bellBtn}
             hitSlop={spacing.sm}
@@ -188,7 +254,11 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         {/* Search bar */}
-        <Pressable onPress={handleSearchPress} style={styles.searchWrap}>
+        <Pressable
+          onPress={handleSearchPress}
+          style={styles.searchWrap}
+          testID="home-search-bar"
+        >
           <Search size={layout.iconSize.md} color={colors.primary} />
           <TextInput
             style={styles.searchInput}
@@ -267,7 +337,7 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         <View testID="home-trending-list">
-          {isLoadingTrending ? (
+          {isLoadingTrending || !hasLocation ? (
             <>
               <ShimmerCard />
               <ShimmerCard />
@@ -287,6 +357,7 @@ export const HomeScreen: React.FC = () => {
             trending.map(item => (
               <ListingCard
                 key={item.id}
+                testID={`trending-listing-${item.id}`}
                 image={item.image}
                 title={item.title}
                 price={item.price}
@@ -299,6 +370,14 @@ export const HomeScreen: React.FC = () => {
           )}
         </View>
       </ScrollView>
+
+      <RadiusFilterSheet
+        visible={radiusSheetOpen}
+        onClose={() => setRadiusSheetOpen(false)}
+        currentRadiusKm={location.radiusKm}
+        onApply={handleApplyRadius}
+        modeLabel={location.isOverride ? location.city : null}
+      />
     </SafeAreaView>
   );
 };
@@ -337,6 +416,10 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     flexShrink: 1,
+  },
+  locationTextOverride: {
+    color: colors.primary,
+    fontWeight: '700',
   },
   bellBtn: {
     width: layout.closeButton,

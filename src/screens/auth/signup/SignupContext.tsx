@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 
 export interface SignupData {
   name: string;
+  phone: string;
   email: string;
   password: string;
   // Location is captured at Step 4 — kept here for the final POST
@@ -21,6 +22,7 @@ interface SignupContextValue {
 
 const initial: SignupData = {
   name: '',
+  phone: '',
   email: '',
   password: '',
 };

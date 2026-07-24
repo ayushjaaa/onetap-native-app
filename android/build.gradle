@@ -7,6 +7,10 @@ buildscript {
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.1.20"
         googlePlayServicesAuthVersion = "21.2.0"
+        // react-native-otp-verify defaults its own module minSdk to 21 unless
+        // overridden here — that's below react-android's minSdk 24, which only
+        // the androidTest manifest merger (Detox) enforces strictly.
+        OtpVerify_minSdkVersion = 24
     }
     repositories {
         google()

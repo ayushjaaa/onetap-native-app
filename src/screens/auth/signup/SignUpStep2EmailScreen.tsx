@@ -41,7 +41,7 @@ export const SignUpStep2EmailScreen: React.FC = () => {
   };
 
   return (
-    <Screen scrollable>
+    <Screen scrollable testID="signup-step2-screen">
       <Header title="Sign Up" onBack={() => navigation.goBack()} />
       <StepIndicator current={2} total={4} />
 
@@ -55,6 +55,7 @@ export const SignUpStep2EmailScreen: React.FC = () => {
         name="email"
         render={({ field: { onChange, onBlur, value } }) => (
           <Input
+            testID="signup-email-input"
             label="Email"
             required
             placeholder="you@example.com"
@@ -79,6 +80,7 @@ export const SignUpStep2EmailScreen: React.FC = () => {
       <View style={styles.spacer} />
 
       <Button
+        testID="signup-step2-next-button"
         title="Next"
         onPress={handleSubmit(onSubmit)}
         disabled={!isValid}

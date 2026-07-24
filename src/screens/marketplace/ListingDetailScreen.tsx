@@ -5,12 +5,15 @@ import {
   Animated,
   Dimensions,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,9 +31,8 @@ import {
   Heart,
   ImageOff,
   Info,
-  MapPin,
-  MessageCircle,
   MoreVertical,
+  Pencil,
   Phone,
   Share2,
   ShieldCheck,
@@ -42,15 +44,20 @@ import {
 } from 'lucide-react-native';
 import { useToast } from '@/hooks/useToast';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { formatINR } from '@/data/packagesCatalog';
 import { formatRelativeShort, stubThumbColour } from '@/data/listingsStub';
 import {
   useExpressInterestMutation,
   useGetListingQuery,
   useDeleteListingMutation,
+  useCreateListingEditRequestMutation,
 } from '@/api/productsApi';
 import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
-import { useSelectBuyerMutation } from '@/api/transactionsApi';
+import {
+  useGetMyInterestsAsBuyerQuery,
+  useSelectBuyerMutation,
+} from '@/api/transactionsApi';
 import { getDistanceKm } from '@/utils/geo';
 import { buildMediaUrl } from '@/utils/media';
 import { mapApiError } from '@/utils/errorMapper';
@@ -109,7 +116,14 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
   const currentUserId = useAppSelector(state => state.auth.user?.id);
+  // Seller-mode distance-to-buyer (below) must be the seller's real
+  // physical position, never a browsing override — a seller managing their
+  // own listing isn't "browsing" anywhere. Buyer-mode "seller is X km away"
+  // (sellerDistanceKm, further down) uses the effective/browsing location
+  // instead, since that's the more contextually meaningful distance while
+  // exploring a city the buyer set as their browsing location.
   const deviceLocation = useAppSelector(state => state.location);
+  const effectiveLocation = useEffectiveLocation();
 
   // Seller callers (MyAdsScreen) pass the already-fetched Listing directly —
   // GET /listings/:id is public and only returns Live/Sold listings, so a
@@ -122,29 +136,41 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     error: listingError,
   } = useGetListingQuery(passedListing ? skipToken : route.params.listingId);
 
-  // Local mutable copy seeded from whichever source applies — lets the
-  // seller's "sell to this buyer" hold-to-confirm action optimistically
-  // reflect a Sold state the instant selectBuyer resolves, without waiting
-  // on a refetch.
-  const [listing, setListing] = useState<Listing | null>(passedListing ?? null);
-  useEffect(() => {
-    if (listingData?.listing) setListing(listingData.listing);
-  }, [listingData]);
+  // `listing` is derived fresh every render — no state/effect sync lag, so
+  // there's no frame where isListingLoading has flipped false but this is
+  // still stale/null (that gap used to make the not-found view flash briefly
+  // on every open). `listingOverride` exists only for the seller's "sell to
+  // this buyer" hold-to-confirm action, to optimistically reflect a Sold
+  // state the instant selectBuyer resolves, without waiting on a refetch.
+  const [listingOverride, setListingOverride] = useState<Listing | null>(null);
+  const listing =
+    listingOverride ?? passedListing ?? listingData?.listing ?? null;
 
   const [activeImage, setActiveImage] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
-  const [hasExpressedInterest, setHasExpressedInterest] = useState(false);
+  // Instant local feedback the moment "Buy this product" is confirmed, before
+  // the server-derived check below has a chance to refetch/reflect it.
+  const [localInterestOverride, setLocalInterestOverride] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [rejectionOpen, setRejectionOpen] = useState(false);
+  const [editRequestOpen, setEditRequestOpen] = useState(false);
+  const [editPrice, setEditPrice] = useState('');
+  const [editDescription, setEditDescription] = useState('');
   const [sellTarget, setSellTarget] = useState<InterestedBuyer | null>(null);
+  // Survives past the sell-confirm flow (unlike sellTarget, which is cleared
+  // right after confirming) so the Sold banner can still show who it sold to.
+  const [soldToName, setSoldToName] = useState<string | undefined>(undefined);
   const [buyConfirmOpen, setBuyConfirmOpen] = useState(false);
 
   const [expressInterest, { isLoading: buyConfirming }] =
     useExpressInterestMutation();
   const [deleteListing, { isLoading: removing }] = useDeleteListingMutation();
+  const [createListingEditRequest, { isLoading: submittingEditRequest }] =
+    useCreateListingEditRequestMutation();
   const [selectBuyer] = useSelectBuyerMutation();
 
-  const isSellerMode = !!listing && listing.sellerId === currentUserId;
+  const isSellerMode =
+    !!listing && !!currentUserId && listing.sellerId === currentUserId;
 
   const { data: receivedInterestsData } = useGetReceivedInterestsQuery(
     isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
@@ -160,6 +186,17 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     .map(i =>
       toInterestedBuyer(i, deviceLocation.latitude, deviceLocation.longitude),
     );
+
+  // Buyer's own interests — lets a returning visit to a listing they already
+  // expressed interest in (in a previous session, or after an app restart)
+  // correctly hide "Buy this product" instead of re-showing it and hitting
+  // the backend's 409 "already expressed interest" on the next tap.
+  const { data: myInterestsData } = useGetMyInterestsAsBuyerQuery(
+    !isSellerMode ? { limit: 100 } : skipToken,
+  );
+  const hasExpressedInterest =
+    localInterestOverride ||
+    (myInterestsData?.interests ?? []).some(i => i.listingId === listing?._id);
 
   // Loading / not-found: query still in flight, or unknown/removed listingId.
   if (isListingLoading) {
@@ -192,23 +229,32 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
-  const isUnavailable = listing.status === 'Sold';
+  // Anything other than Live is unavailable for a buyer to purchase — not
+  // just Sold (a stale passed-in listing could also be Rejected/Expired).
+  const isUnavailable = listing.status !== 'Live';
 
   const [sellerLng, sellerLat] = listing.seller?.location?.coordinates ?? [];
   const sellerDistanceKm =
-    deviceLocation.latitude != null &&
-    deviceLocation.longitude != null &&
+    effectiveLocation.latitude != null &&
+    effectiveLocation.longitude != null &&
     sellerLat != null &&
     sellerLng != null
       ? Math.round(
           getDistanceKm(
-            deviceLocation.latitude,
-            deviceLocation.longitude,
+            effectiveLocation.latitude,
+            effectiveLocation.longitude,
             sellerLat,
             sellerLng,
           ),
         )
       : null;
+
+  const handleCallSeller = (phone: string) => {
+    const dialUrl = `tel:${phone.startsWith('+') ? phone : `+${phone}`}`;
+    Linking.openURL(dialUrl).catch(() => {
+      Alert.alert('Could not open dialer', 'Please dial the number manually.');
+    });
+  };
 
   const handleBuyTap = () => {
     if (isUnavailable || hasExpressedInterest) return;
@@ -217,56 +263,44 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   const handleBuyConfirm = async () => {
     try {
-      await expressInterest({ listingId: listing._id }).unwrap();
+      const res = await expressInterest({ listingId: listing._id }).unwrap();
+      console.log(
+        '[EXPRESS_INTEREST] success response:',
+        JSON.stringify(res, null, 2),
+      );
 
-      setHasExpressedInterest(true);
+      setLocalInterestOverride(true);
       setBuyConfirmOpen(false);
       toast.success({
         title: 'Interest sent',
         message: `${
           listing.seller?.name ?? 'Seller'
-        } ko notify kar diya. Chat ya call ready hai.`,
+        } will reach out if you're selected.`,
       });
     } catch (err: any) {
+      console.log(
+        '[EXPRESS_INTEREST] error response:',
+        JSON.stringify(err, null, 2),
+      );
       if (err?.status === 409) {
         // Already expressed interest previously (e.g. re-tapped after a reload) —
-        // treat as success so the buyer still reaches the Chat/Call state.
-        setHasExpressedInterest(true);
+        // treat as success so the buyer still reaches the "interest sent" state.
+        setLocalInterestOverride(true);
         setBuyConfirmOpen(false);
         return;
       }
       toast.error({
         title: "Couldn't send interest",
-        message: 'Network issue — phir try karein.',
+        message: 'Network issue — please try again.',
       });
     }
-  };
-
-  const handleCallSeller = () => {
-    const phone = listing.seller?.phone;
-    if (!phone) {
-      toast.info({
-        title: 'Number not available',
-        message: "Seller hasn't verified their phone number yet.",
-      });
-      return;
-    }
-    Linking.openURL(`tel:${phone}`);
-  };
-
-  const handleOpenChat = () => {
-    navigation.navigate('ChatConversation', {
-      listingId: listing._id,
-      counterpartyId: listing.seller?.id,
-      counterpartyName: listing.seller?.name,
-    });
   };
 
   const handleRemove = () => {
     setMenuOpen(false);
     Alert.alert(
       'Remove this listing?',
-      'Aapko ek slot wapas mil jayega. Listing permanently delist ho jayegi.',
+      'You’ll get a slot back. This listing will be permanently delisted.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -290,6 +324,46 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     );
   };
 
+  const openEditRequest = () => {
+    setMenuOpen(false);
+    setEditPrice(String(listing.price / 100));
+    setEditDescription(listing.description);
+    setEditRequestOpen(true);
+  };
+
+  const handleSubmitEditRequest = async () => {
+    const priceNum = Number(editPrice);
+    if (isNaN(priceNum) || priceNum < 0) {
+      Alert.alert('Invalid price', 'Please enter a valid price.');
+      return;
+    }
+    if (editDescription.trim().length < 20) {
+      Alert.alert(
+        'Description too short',
+        'Description must be at least 20 characters.',
+      );
+      return;
+    }
+    try {
+      await createListingEditRequest({
+        id: listing._id,
+        price: Math.round(priceNum * 100),
+        description: editDescription.trim(),
+      }).unwrap();
+      setEditRequestOpen(false);
+      toast.success({
+        title: 'Edit request submitted',
+        message: 'An admin will review your changes.',
+      });
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({
+        title: "Couldn't submit edit request",
+        message: mapped.message,
+      });
+    }
+  };
+
   const handleSellTo = (buyer: InterestedBuyer) => setSellTarget(buyer);
 
   const handleSellConfirmed = async () => {
@@ -302,20 +376,16 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       // Optimistic local flip so the screen reflects Sold immediately —
       // selectBuyer's cache invalidation will reconcile with the server
       // response shortly after.
-      setListing(prev =>
-        prev
-          ? {
-              ...prev,
-              status: 'Sold',
-              soldAt: new Date().toISOString(),
-            }
-          : prev,
-      );
-      const soldToName = sellTarget.name;
+      setListingOverride({
+        ...listing,
+        status: 'Sold',
+        soldAt: new Date().toISOString(),
+      });
+      setSoldToName(sellTarget.name);
       setSellTarget(null);
       toast.success({
         title: 'Sale recorded',
-        message: `Sold to ${soldToName}. Slot wapas Wallet mein add ho gaya.`,
+        message: `Sold to ${sellTarget.name}. Your slot has been added back to your wallet.`,
       });
     } catch (err) {
       const mapped = mapApiError(err as never);
@@ -328,7 +398,11 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={['top']}
+      testID="listing-detail-screen"
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -340,6 +414,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              testID="listing-detail-gallery"
               onMomentumScrollEnd={e => {
                 const idx = Math.round(
                   e.nativeEvent.contentOffset.x / SCREEN_WIDTH,
@@ -350,6 +425,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               {listing.photos.map((uri, i) => (
                 <Image
                   key={i}
+                  testID={`listing-detail-gallery-image-${i}`}
                   source={{ uri: buildMediaUrl(uri) }}
                   style={[
                     styles.galleryImage,
@@ -425,7 +501,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         {isSellerMode ? (
           <StatusBanner
             status={listing.status}
-            soldToName={sellTarget?.name}
+            soldToName={soldToName}
             soldAtIso={listing.soldAt}
             onSeeReason={() => setRejectionOpen(true)}
           />
@@ -437,6 +513,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           <Text style={styles.title}>{listing.title}</Text>
 
           {!isSellerMode &&
+          listing.status === 'Live' &&
           listing.interestCount &&
           listing.interestCount > 0 ? (
             <View style={styles.interestPill}>
@@ -451,7 +528,6 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
           <View style={styles.metaRow}>
             <View style={styles.metaItem}>
-              <MapPin size={layout.iconSize.sm} color={colors.textMuted} />
               <Text style={styles.metaText}>{listing.address ?? ''}</Text>
             </View>
             <View style={styles.metaItem}>
@@ -479,13 +555,6 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             <InterestedBuyersSection
               buyers={interestedBuyers}
               onSellTo={handleSellTo}
-              onChat={buyer => {
-                navigation.navigate('ChatConversation', {
-                  listingId: listing._id,
-                  counterpartyId: buyer.id,
-                  counterpartyName: buyer.name,
-                });
-              }}
             />
           ) : null}
 
@@ -526,6 +595,15 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                     </Text>
                   ) : null}
                 </View>
+                {listing.seller?.phone ? (
+                  <Pressable
+                    onPress={() => handleCallSeller(listing.seller!.phone!)}
+                    style={styles.callSellerBtn}
+                    hitSlop={spacing.sm}
+                  >
+                    <Phone size={layout.iconSize.sm} color={colors.white} />
+                  </Pressable>
+                ) : null}
               </View>
             </>
           ) : null}
@@ -536,7 +614,10 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           Three states:
             unavailable    → disabled "No longer available" card
             !interest      → single full-width "Buy this product" CTA
-            after interest → Chat + Call (phone already revealed)        */}
+            after interest → neutral status message. Chat is hidden until the
+            dedicated chat feature ships; the seller's number is never shown
+            to buyers (only the seller sees the buyer's number, once selected —
+            see listing.controller.ts / interest.controller.ts).             */}
       {!isSellerMode ? (
         <View style={styles.bottomBar}>
           {isUnavailable ? (
@@ -549,6 +630,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
           ) : !hasExpressedInterest ? (
             <Pressable
               onPress={handleBuyTap}
+              testID="listing-detail-buy-button"
               style={({ pressed }) => [
                 styles.buyBtn,
                 pressed && styles.buyBtnPressed,
@@ -565,31 +647,18 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               </View>
             </Pressable>
           ) : (
-            <>
-              <Pressable
-                style={styles.chatBtn}
-                onPress={handleOpenChat}
-                hitSlop={spacing.sm}
-              >
-                <MessageCircle
-                  size={layout.iconSize.md}
-                  color={colors.textPrimary}
-                />
-                <Text style={styles.chatText}>Chat</Text>
-              </Pressable>
-              {listing.seller?.phone ? (
-                <Pressable
-                  style={styles.callBtn}
-                  onPress={handleCallSeller}
-                  hitSlop={spacing.sm}
-                >
-                  <Phone size={layout.iconSize.md} color={colors.white} />
-                  <Text style={styles.callText} numberOfLines={1}>
-                    Call · {listing.seller.phone}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </>
+            <View
+              style={styles.unavailableBar}
+              testID="listing-detail-interest-sent"
+            >
+              <CheckCircle2
+                size={layout.iconSize.sm}
+                color={colors.textMuted}
+              />
+              <Text style={styles.unavailableText}>
+                Interest sent — the seller will reach out if you're selected
+              </Text>
+            </View>
           )}
         </View>
       ) : null}
@@ -619,6 +688,18 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 <Text style={[styles.menuItemText, styles.menuItemDanger]}>
                   {removing ? 'Removing…' : 'Remove listing'}
                 </Text>
+              </Pressable>
+            ) : null}
+            {listing.status === 'Live' ? (
+              <Pressable
+                onPress={openEditRequest}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  pressed && styles.menuItemPressed,
+                ]}
+              >
+                <Pencil size={layout.iconSize.sm} color={colors.textPrimary} />
+                <Text style={styles.menuItemText}>Request edit</Text>
               </Pressable>
             ) : null}
             <Pressable
@@ -664,10 +745,82 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             </Text>
           </View>
           <Text style={styles.sheetHint}>
-            Listings are immutable — rejected listings can't be edited. Naya
-            listing post karein (1 slot consume hoga).
+            Rejected listings can't be edited. Post a new listing instead (uses
+            1 slot).
           </Text>
         </View>
+      </Modal>
+
+      {/* Request-edit sheet (seller mode) — proposes new price/description,
+          goes to an admin approval queue; nothing changes on the listing
+          until approved (see listingEditRequest.controller.ts). */}
+      <Modal
+        visible={editRequestOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditRequestOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.sheetKeyboardWrapper}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable
+            style={styles.sheetBackdrop}
+            onPress={() => setEditRequestOpen(false)}
+          />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Request edit</Text>
+              <Pressable
+                onPress={() => setEditRequestOpen(false)}
+                hitSlop={spacing.sm}
+                style={styles.sheetClose}
+              >
+                <X size={layout.iconSize.md} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+            <Text style={styles.sheetHint}>
+              Changes go to an admin for review — nothing updates until
+              approved.
+            </Text>
+            <Text style={[styles.sheetTitle, styles.editFieldLabel]}>
+              Price (₹)
+            </Text>
+            <TextInput
+              style={styles.editInput}
+              value={editPrice}
+              onChangeText={setEditPrice}
+              keyboardType="numeric"
+              placeholder="Price"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={[styles.sheetTitle, styles.editFieldLabel]}>
+              Description
+            </Text>
+            <TextInput
+              style={[styles.editInput, styles.editInputMultiline]}
+              value={editDescription}
+              onChangeText={setEditDescription}
+              multiline
+              placeholder="Description"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Pressable
+              onPress={handleSubmitEditRequest}
+              disabled={submittingEditRequest}
+              style={[
+                styles.buyConfirmBtn,
+                styles.editSubmitBtn,
+                submittingEditRequest && styles.buyConfirmBtnLoading,
+              ]}
+            >
+              <Text style={styles.buyConfirmText}>
+                {submittingEditRequest ? 'Submitting…' : 'Submit for review'}
+              </Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Sell-to confirm modal with hold-to-confirm */}
@@ -754,14 +907,22 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
 interface InterestedBuyersSectionProps {
   buyers: InterestedBuyer[];
   onSellTo: (buyer: InterestedBuyer) => void;
-  onChat: (buyer: InterestedBuyer) => void;
 }
 
 const InterestedBuyersSection: React.FC<InterestedBuyersSectionProps> = ({
   buyers,
   onSellTo,
-  onChat,
 }) => {
+  // buyer.phone is stored/normalized as a bare "91XXXXXXXXXX" string (no
+  // leading '+') — most dialers open fine either way, but prefixing '+'
+  // makes the intent unambiguous as an international number every time.
+  const handleCallBuyer = (phone: string) => {
+    const dialUrl = `tel:${phone.startsWith('+') ? phone : `+${phone}`}`;
+    Linking.openURL(dialUrl).catch(() => {
+      Alert.alert('Could not open dialer', 'Please dial the number manually.');
+    });
+  };
+
   return (
     <View style={styles.buyersBlock}>
       <Text style={styles.sectionTitle}>
@@ -793,18 +954,12 @@ const InterestedBuyersSection: React.FC<InterestedBuyersSectionProps> = ({
               <View style={styles.buyerBtns}>
                 {buyer.phone ? (
                   <Pressable
-                    onPress={() => Linking.openURL(`tel:${buyer.phone}`)}
+                    onPress={() => handleCallBuyer(buyer.phone!)}
                     style={styles.buyerChatBtn}
                   >
                     <Text style={styles.buyerChatText}>Call</Text>
                   </Pressable>
                 ) : null}
-                <Pressable
-                  onPress={() => onChat(buyer)}
-                  style={styles.buyerChatBtn}
-                >
-                  <Text style={styles.buyerChatText}>Chat</Text>
-                </Pressable>
                 <Pressable
                   onPress={() => onSellTo(buyer)}
                   style={styles.buyerSellBtn}
@@ -892,15 +1047,9 @@ const SellToConfirmModal: React.FC<SellToConfirmModalProps> = ({
             Confirm sale to {buyer?.name ?? 'this buyer'}?
           </Text>
           <Text style={styles.confirmBody}>
-            Once confirmed, listing ko "Sold" mark kar diya jayega. Doosre
-            interested buyers ko notify hoga.
+            Once confirmed, the listing will be marked "Sold" and other
+            interested buyers will be notified.
           </Text>
-          <View style={styles.confirmHint}>
-            <CheckCircle2 size={layout.iconSize.sm} color={colors.primary} />
-            <Text style={styles.confirmHintText}>
-              Ye action ek slot free karega aapke Wallet mein.
-            </Text>
-          </View>
           <View style={styles.confirmBtnRow}>
             <Pressable
               onPress={onClose}
@@ -958,12 +1107,19 @@ const BuyConfirmSheet: React.FC<BuyConfirmSheetProps> = ({
         <View style={styles.sheetHandle} />
 
         <View style={styles.buyRecap}>
-          <View
-            style={[
-              styles.buyRecapThumb,
-              { backgroundColor: stubThumbColour(listing._id) },
-            ]}
-          />
+          {listing.photos?.[0] ? (
+            <Image
+              source={{ uri: buildMediaUrl(listing.photos[0]) }}
+              style={styles.buyRecapThumb}
+            />
+          ) : (
+            <View
+              style={[
+                styles.buyRecapThumb,
+                { backgroundColor: stubThumbColour(listing._id) },
+              ]}
+            />
+          )}
           <View style={styles.buyRecapText}>
             <Text style={styles.buyRecapTitle} numberOfLines={1}>
               {listing.title}
@@ -975,15 +1131,14 @@ const BuyConfirmSheet: React.FC<BuyConfirmSheetProps> = ({
         <Text style={styles.buySheetHeading}>Confirm interest</Text>
 
         <Text style={styles.buySheetBody}>
-          Seller ko aapki interest dikh jayegi. Aap unhe direct chat ya call kar
-          sakte ho. Confirm karte hi aapka phone number unke saath share ho
-          jayega.
+          The seller will see your interest. You'll be able to chat or call them
+          directly. Confirming will share your phone number with them.
         </Text>
 
         <View style={styles.buyPrivacyCard}>
           <Info size={layout.iconSize.sm} color={colors.primary} />
           <Text style={styles.buyPrivacyText}>
-            Cash on Delivery only. App se koi payment nahi hoti.
+            Cash on delivery only — no payment is handled through the app.
           </Text>
         </View>
 
@@ -1002,6 +1157,7 @@ const BuyConfirmSheet: React.FC<BuyConfirmSheetProps> = ({
           <Pressable
             onPress={onConfirm}
             disabled={confirming}
+            testID="listing-detail-confirm-interest-button"
             style={({ pressed }) => [
               styles.buyConfirmBtn,
               confirming && styles.buyConfirmBtnLoading,
@@ -1239,6 +1395,14 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     marginTop: spacing['2xs'],
   },
+  callSellerBtn: {
+    width: layout.emptyIconCircle / 2,
+    height: layout.emptyIconCircle / 2,
+    borderRadius: layout.emptyIconCircle / 4,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // Bottom bar (buyer)
   bottomBar: {
@@ -1458,6 +1622,9 @@ const styles = StyleSheet.create({
   },
 
   // Rejection sheet
+  sheetKeyboardWrapper: {
+    flex: 1,
+  },
   sheetBackdrop: {
     flex: 1,
     backgroundColor: colors.overlay,
@@ -1517,6 +1684,31 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     lineHeight: fontSize.sm * 1.6,
+    marginBottom: spacing.md,
+  },
+  editFieldLabel: {
+    fontSize: fontSize.sm,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  editInput: {
+    ...typography.body,
+    color: colors.textPrimary,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+  },
+  editInputMultiline: {
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  editSubmitBtn: {
+    flex: 0,
+    width: '100%',
+    marginTop: spacing.md,
   },
 
   // Sell-to confirm modal

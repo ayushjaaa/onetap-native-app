@@ -38,14 +38,7 @@ import {
   STUB_THREADS,
 } from '@/data/chatStub';
 import { formatINR } from '@/data/packagesCatalog';
-import {
-  colors,
-  fontSize,
-  layout,
-  radius,
-  spacing,
-  typography,
-} from '@/theme';
+import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ChatConversation'>;
@@ -102,6 +95,16 @@ export const ChatConversationScreen: React.FC<Props> = ({ route }) => {
   );
   const [draft, setDraft] = useState('');
 
+  // Online presence is mocked: pretend the counterparty is online iff their
+  // id ends with an odd char. Cheap deterministic stand-in for socket data.
+  // Must run before the `!listing` early return below (Rules of Hooks), so
+  // it tolerates a null listing itself rather than being skipped.
+  const isOnline = useMemo(() => {
+    const key = counterpartyId ?? listing?.seller.id;
+    if (!key) return false;
+    return key.charCodeAt(key.length - 1) % 2 === 1;
+  }, [counterpartyId, listing?.seller.id]);
+
   // Defensive: chat without a known listing shouldn't crash.
   if (!listing) {
     return (
@@ -110,8 +113,8 @@ export const ChatConversationScreen: React.FC<Props> = ({ route }) => {
           <XCircle size={64} color={colors.error} />
           <Text style={styles.errorTitle}>Conversation not found</Text>
           <Text style={styles.errorBody}>
-            This listing may have been removed. Try opening the chat from
-            your inbox again.
+            This listing may have been removed. Try opening the chat from your
+            inbox again.
           </Text>
           <Pressable
             style={styles.errorPrimary}
@@ -127,14 +130,6 @@ export const ChatConversationScreen: React.FC<Props> = ({ route }) => {
   const resolvedName = counterpartyName ?? listing.seller.name;
   const resolvedInitial = resolvedName.charAt(0).toUpperCase();
   const isUnavailable = listing.status === 'sold';
-
-  // Online presence is mocked: pretend the counterparty is online iff their
-  // id ends with an odd char. Cheap deterministic stand-in for socket data.
-  const isOnline = useMemo(() => {
-    const key = counterpartyId ?? listing.seller.id;
-    if (!key) return false;
-    return key.charCodeAt(key.length - 1) % 2 === 1;
-  }, [counterpartyId, listing.seller.id]);
 
   const sendMessage = (body: string) => {
     const trimmed = body.trim();
@@ -240,7 +235,7 @@ export const ChatConversationScreen: React.FC<Props> = ({ route }) => {
         {isUnavailable ? (
           <View style={styles.soldBanner}>
             <Text style={styles.soldBannerText}>
-              Ye product bik chuka hai. Aap follow-up ke liye chat kar sakte ho.
+              This product has been sold. You can still chat for follow-up.
             </Text>
           </View>
         ) : null}
@@ -299,7 +294,9 @@ const PinnedListingCard: React.FC<{
         {listing.title}
       </Text>
       <View style={styles.pinnedMetaRow}>
-        <Text style={styles.pinnedPrice}>{formatINR(listing.priceInPaise)}</Text>
+        <Text style={styles.pinnedPrice}>
+          {formatINR(listing.priceInPaise)}
+        </Text>
         <StatusPill status={listing.status} />
       </View>
     </View>
@@ -313,7 +310,9 @@ const StatusPill: React.FC<{ status: StubListing['status'] }> = ({
   const cfg = STATUS_PILL_CFG[status];
   return (
     <View style={[styles.statusPill, { backgroundColor: cfg.bg }]}>
-      <Text style={[styles.statusPillText, { color: cfg.fg }]}>{cfg.label}</Text>
+      <Text style={[styles.statusPillText, { color: cfg.fg }]}>
+        {cfg.label}
+      </Text>
     </View>
   );
 };
@@ -322,9 +321,17 @@ const STATUS_PILL_CFG: Record<
   StubListing['status'],
   { label: string; bg: string; fg: string }
 > = {
-  pending: { label: 'Pending', bg: 'rgba(245, 158, 11, 0.18)', fg: colors.warning },
+  pending: {
+    label: 'Pending',
+    bg: 'rgba(245, 158, 11, 0.18)',
+    fg: colors.warning,
+  },
   live: { label: 'Live', bg: 'rgba(16, 185, 129, 0.18)', fg: colors.success },
-  rejected: { label: 'Rejected', bg: 'rgba(239, 68, 68, 0.18)', fg: colors.error },
+  rejected: {
+    label: 'Rejected',
+    bg: 'rgba(239, 68, 68, 0.18)',
+    fg: colors.error,
+  },
   sold: { label: 'Sold', bg: colors.card, fg: colors.textMuted },
 };
 

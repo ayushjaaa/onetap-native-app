@@ -9,6 +9,9 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Header } from '@/components/common/Header';
 import { PasswordInput } from '@/components/auth/PasswordInput';
+// Kept for the commented-out Google button below; re-enable once the OAuth
+// SHA-1/package mismatch is fixed (see comment near the JSX usage).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { SocialButton } from '@/components/auth/SocialButton';
 import { loginSchema, type LoginFormData } from '@/utils/schemas';
 import { trimEmail } from '@/utils/formatters';
@@ -29,8 +32,7 @@ export const LoginScreen: React.FC = () => {
   const toast = useToast();
   const dispatch = useAppDispatch();
   const [login, { isLoading: loggingIn }] = useLoginMutation();
-  const [googleSignInApi, { isLoading: googling }] =
-    useGoogleSignInMutation();
+  const [googleSignInApi, { isLoading: googling }] = useGoogleSignInMutation();
   const [googleBusy, setGoogleBusy] = useState(false);
 
   const {
@@ -52,14 +54,35 @@ export const LoginScreen: React.FC = () => {
 
     try {
       const res = await login(payload).unwrap();
-      console.log('[LOGIN] success response:', JSON.stringify(res, null, 2));
+      console.log('[LOGIN] success response: user', res.data.user.id);
+      const { user, token } = res.data;
 
-      navigation.navigate('Phone', {
-        email: payload.email,
-        password: payload.password,
-        user: res.data.user,
-        token: res.data.token,
-      });
+      if (!token) {
+        toast.error({
+          title: 'Login failed',
+          message: 'Something went wrong. Please try again.',
+        });
+        return;
+      }
+      // Persist immediately — every screen downstream (Phone, Otp) needs a
+      // valid bearer token for its authenticated calls, and reads it fresh
+      // from Keychain rather than carrying the raw JWT through nav params.
+      await secureStorage.saveToken(token);
+
+      // Only route through Phone+OTP verification if this account's phone isn't
+      // verified yet. Checking `phoneVerified` (not `phone`) matters: `phone` is
+      // always set at registration regardless of verification status, so that
+      // check would never actually gate anything.
+      if (!user.phoneVerified) {
+        navigation.navigate('Phone', {
+          email: payload.email,
+          password: payload.password,
+          user,
+        });
+        return;
+      }
+
+      dispatch(setCredentials({ user, token }));
     } catch (err) {
       console.log('[LOGIN] error response:', JSON.stringify(err, null, 2));
       const mapped = mapApiError(err as never);
@@ -71,6 +94,9 @@ export const LoginScreen: React.FC = () => {
     navigation.navigate('ForgotPasswordPhone');
   };
 
+  // Kept for the commented-out Google button below; re-enable once the OAuth
+  // SHA-1/package mismatch is fixed.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleGoogle = async () => {
     if (googleBusy || googling) return;
     setGoogleBusy(true);
@@ -101,12 +127,22 @@ export const LoginScreen: React.FC = () => {
       );
       const { user, token, needsLocation } = res.data;
 
+      if (!token) {
+        toast.error({
+          title: 'Google sign-in failed',
+          message: 'Something went wrong. Please try again.',
+        });
+        return;
+      }
+      // Persist immediately — downstream screens read it fresh from
+      // Keychain instead of carrying the raw JWT through nav params.
+      await secureStorage.saveToken(token);
+
       // New Google user (no phone yet) → same Phone+OTP flow as manual login
       if (!user.phone) {
         navigation.navigate('Phone', {
           email: user.email,
           user,
-          token,
           fromGoogle: true,
           needsLocation,
         });
@@ -118,13 +154,11 @@ export const LoginScreen: React.FC = () => {
         navigation.navigate('SignUpLocation', {
           fromGoogle: true,
           user,
-          token,
         });
         return;
       }
 
-      // Returning Google user — fully onboarded → persist & enter app
-      await secureStorage.saveToken(token);
+      // Returning Google user — fully onboarded → enter app
       dispatch(setCredentials({ user, token }));
     } catch (err) {
       // Backend rejected the idToken or network/server error — clean retry
@@ -162,6 +196,7 @@ export const LoginScreen: React.FC = () => {
         name="email"
         render={({ field: { onChange, onBlur, value } }) => (
           <Input
+            testID="login-email-input"
             label="Email"
             placeholder="Enter your email"
             value={value}
@@ -187,6 +222,7 @@ export const LoginScreen: React.FC = () => {
         name="password"
         render={({ field: { onChange, onBlur, value } }) => (
           <PasswordInput
+            testID="login-password-input"
             label="Password"
             placeholder="Enter your password"
             value={value}
@@ -208,6 +244,7 @@ export const LoginScreen: React.FC = () => {
       <View style={styles.actionGap} />
 
       <Button
+        testID="login-submit-button"
         title="Sign In"
         onPress={handleSubmit(onSubmit)}
         disabled={!isValid || loggingIn}

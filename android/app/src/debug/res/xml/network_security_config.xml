@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Debug-only override (src/debug/ takes priority over src/main/'s
+         version for debug builds) — Metro's dev server runs over plain
+         http://localhost, so debug builds need cleartext allowed broadly,
+         unlike release which stays scoped to just the production server IP
+         (see src/main/res/xml/network_security_config.xml). -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -57,9 +57,12 @@ export const mapApiError = (
     const backendMessage = data?.message;
 
     if (numericStatus >= 500) {
+      // Never surface the raw backend message here — 5xx bodies can carry
+      // an unhandled exception's message (Mongo/Mongoose internals, etc.),
+      // which is developer-facing, not something a user should see.
       return {
         status: numericStatus,
-        message: backendMessage || SERVER_MESSAGE,
+        message: SERVER_MESSAGE,
         isNetworkError: false,
         isAuthError: false,
         isServerError: true,

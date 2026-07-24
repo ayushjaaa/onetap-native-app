@@ -11,6 +11,8 @@ import {
   useGetWalletTransactionsQuery,
 } from '@/api/walletApi';
 import { useGetMyListingsQuery } from '@/api/productsApi';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { formatCurrency } from '@/utils/formatters';
 import type { WalletTransaction } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
@@ -43,6 +45,7 @@ const KIND_LABEL: Record<WalletTransaction['kind'], string> = {
 
 export const ProductWalletScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const user = useAppSelector(state => state.auth.user);
   const [receiptTxId, setReceiptTxId] = React.useState<string | null>(null);
 
   const { data: walletData, isLoading: isLoadingWallet } = useGetWalletQuery();
@@ -66,8 +69,11 @@ export const ProductWalletScreen: React.FC = () => {
   const hasNoSlots = !isLoadingSlots && availableSlots === 0;
   const isLoading = isLoadingWallet || isLoadingTx || isLoadingSlots;
 
+  // Having slots doesn't mean isSellerApproved — a package purchase never
+  // grants identity:kyc_verified, so route through the same gate as every
+  // other "Post" entry point instead of assuming ListProduct is reachable.
   const handlePostProduct = () => {
-    navigation.navigate('ListProduct');
+    navigation.navigate(resolvePostAdDestination(user) as never);
   };
 
   const handleBuyMore = () => {
@@ -257,7 +263,7 @@ const EmptyWalletView: React.FC<{
     </Text>
     <Text style={styles.emptyBody}>
       {totalPostCreditsPurchased > 0
-        ? 'Every purchased slot is tied to a Pending or Live listing. Sell, expire, or delete one to free up a slot, or buy more.'
+        ? 'A sold listing keeps its slot used permanently. Delete an unsold listing, wait for one to expire, or buy more to free up space.'
         : 'Buy your first pack to start posting products on OneTap.'}
     </Text>
 

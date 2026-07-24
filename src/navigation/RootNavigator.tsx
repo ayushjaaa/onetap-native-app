@@ -12,11 +12,12 @@ import { MainNavigator } from './MainNavigator';
  *  - Bootstrap not done → animated SplashScreen
  *  - First launch → OnboardingScreen
  *  - No token → AuthNavigator
- *  - Token valid → MainNavigator
+ *  - Token valid but phone not verified → AuthNavigator, forced to Phone
+ *  - Token valid and phone verified → MainNavigator
  */
 export const RootNavigator: React.FC = () => {
   const { ready } = useBootstrap();
-  const { isLoggedIn, hasOnboarded, isHydrated } = useAppSelector(
+  const { isLoggedIn, hasOnboarded, isHydrated, user } = useAppSelector(
     state => state.auth,
   );
 
@@ -35,6 +36,14 @@ export const RootNavigator: React.FC = () => {
 
   if (!isLoggedIn) {
     return <AuthNavigator />;
+  }
+
+  // Re-checked on every launch (not just at login time) — a valid token alone
+  // doesn't mean the phone is verified, and the backend gate (Gateway's /api/v1
+  // middleware) will 403 every other endpoint until it is, so sending an
+  // unverified user to MainNavigator would just strand them on broken screens.
+  if (!user?.phoneVerified) {
+    return <AuthNavigator initialRouteName="Phone" />;
   }
 
   return <MainNavigator />;

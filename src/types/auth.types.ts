@@ -15,6 +15,9 @@ export interface User {
   email: string;
   role: UserRole;
   phone?: string | null; // how phone numer can be sting
+  // Server-side truth, set only by POST /phone/verify-otp — gates RootNavigator's
+  // logged-in-vs-home decision. Never assume true just because `phone` is set.
+  phoneVerified?: boolean;
   aadhaarVerified?: boolean;
   isSellerApproved?: boolean;
   // Derived client-side (see `deriveSellerFlags`) from `sellerDisplayName` —
@@ -43,6 +46,7 @@ export interface User {
 
 export interface RegisterRequest {
   name: string;
+  phone: string;
   email: string;
   password: string;
   address?: string;
@@ -137,15 +141,33 @@ export interface VerifyOtpResponse {
   };
 }
 
-export interface ForgotPasswordRequest {
-  email: string;
+export interface ForgotPasswordSendOtpRequest {
+  phone: string;
 }
 
-export interface ForgotPasswordResponse {
+export interface ForgotPasswordSendOtpResponse {
   success: boolean;
   statusCode: number;
   message: string;
-  data: Record<string, never>;
+  // Always 200 regardless of whether the phone is registered (anti-
+  // enumeration) — data is empty in production, only populated with
+  // code/expiresInSeconds when the backend's EXPOSE_OTP_IN_RESPONSE dev
+  // flag is on.
+  data: Record<string, unknown>;
+}
+
+export interface ForgotPasswordVerifyOtpRequest {
+  phone: string;
+  code: string;
+}
+
+export interface ForgotPasswordVerifyOtpResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    resetToken: string;
+  };
 }
 
 export interface ResetPasswordRequest {

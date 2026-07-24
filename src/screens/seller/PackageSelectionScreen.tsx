@@ -45,7 +45,11 @@ export const PackageSelectionScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={['top']}
+      testID="package-selection-screen"
+    >
       <View style={styles.header}>
         <Pressable
           onPress={navigation.goBack}
@@ -63,15 +67,16 @@ export const PackageSelectionScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.intro}>
-          1 package = X concurrent posts. Anytime aur kharid sakte ho.
+          Each package gives you a number of concurrent listing slots. Buy more
+          anytime.
         </Text>
 
         {existingSlots > 0 ? (
           <View style={styles.existingBanner}>
             <Sparkles size={layout.iconSize.sm} color={colors.warning} />
             <Text style={styles.existingBannerText}>
-              Aapke paas {existingSlots} active slots hain. Aur kharido ya post
-              karein.
+              You have {existingSlots} active slot
+              {existingSlots === 1 ? '' : 's'}. Buy more or post a new listing.
             </Text>
           </View>
         ) : null}
@@ -112,25 +117,25 @@ export const PackageSelectionScreen: React.FC = () => {
           <View style={styles.sheetBlock}>
             <Text style={styles.sheetSubtitle}>What is a slot?</Text>
             <Text style={styles.sheetBody}>
-              Ek slot = ek concurrent listing jo Pending ya Live state mein ho.
-              Aapka package jitne slots de, utne listings ek waqt mein active
-              rakh sakte ho.
+              A slot is one listing that's awaiting review or currently live.
+              Your package's slot count is how many listings you can keep active
+              at the same time.
             </Text>
           </View>
 
           <View style={styles.sheetBlock}>
-            <Text style={styles.sheetSubtitle}>Slot kab free hota hai?</Text>
+            <Text style={styles.sheetSubtitle}>When does a slot free up?</Text>
             <Text style={styles.sheetBody}>
-              • Admin rejection (slot wapas mil jaata hai){`\n`}• Sold mark hone
-              par (Sell to buyer){`\n`}• Aap manually live listing remove karein
+              • The listing is rejected by an admin{`\n`}• The listing sells
+              {`\n`}• You manually remove a live listing
             </Text>
           </View>
 
           <View style={styles.sheetBlock}>
             <Text style={styles.sheetSubtitle}>Validity</Text>
             <Text style={styles.sheetBody}>
-              Slots kabhi expire nahi hote. Multiple packages khareed kar slots
-              stack kar sakte ho.
+              Slots never expire. You can buy multiple packages and stack your
+              slots.
             </Text>
           </View>
 
@@ -156,8 +161,18 @@ interface PackageCardProps {
 // reasonable default; revisit if the catalog's id naming ever changes.
 const isPopular = (pkg: WalletPackage) => pkg.id === 'pkg-standard';
 
+// Backend uses a large sentinel (not literal infinity) for the "unlimited"
+// tier's postCredits — see wallet-service/src/lib/packages.ts. Anything at
+// or above this reads as unlimited in the UI.
+const UNLIMITED_THRESHOLD = 1000;
+const isFree = (pkg: WalletPackage) => pkg.priceInPaise <= 0;
+const isUnlimited = (pkg: WalletPackage) =>
+  pkg.postCredits >= UNLIMITED_THRESHOLD;
+
 const PackageCard: React.FC<PackageCardProps> = ({ pkg, onBuy }) => {
   const popular = isPopular(pkg);
+  const free = isFree(pkg);
+  const unlimited = isUnlimited(pkg);
   return (
     <View style={[styles.card, popular && styles.cardPopular]}>
       <View
@@ -179,35 +194,51 @@ const PackageCard: React.FC<PackageCardProps> = ({ pkg, onBuy }) => {
         </View>
 
         <View style={styles.priceRow}>
-          <Text style={styles.price}>{formatINR(pkg.priceInPaise)}</Text>
-          <Text style={styles.priceUnit}> / pack</Text>
+          <Text style={styles.price}>
+            {free ? 'Free' : formatINR(pkg.priceInPaise)}
+          </Text>
+          {!free ? <Text style={styles.priceUnit}> / pack</Text> : null}
         </View>
 
         <View style={styles.slotsRow}>
           <LayoutDashboard size={layout.iconSize.sm} color={colors.primary} />
           <Text style={styles.slotsText}>
-            {pkg.postCredits} concurrent post{' '}
-            {pkg.postCredits === 1 ? 'slot' : 'slots'}
+            {unlimited
+              ? 'Unlimited active listings'
+              : `${pkg.postCredits} concurrent post ${
+                  pkg.postCredits === 1 ? 'slot' : 'slots'
+                }`}
           </Text>
         </View>
 
         <View style={styles.benefits}>
-          <View style={styles.benefitRow}>
-            <Check size={layout.iconSize.sm} color={colors.success} />
-            <Text style={styles.benefitText}>{pkg.description}</Text>
-          </View>
+          {(pkg.benefits ?? []).map(benefit => (
+            <View key={benefit} style={styles.benefitRow}>
+              <Check size={layout.iconSize.sm} color={colors.success} />
+              <Text style={styles.benefitText}>{benefit}</Text>
+            </View>
+          ))}
         </View>
 
-        <Pressable
-          onPress={onBuy}
-          style={({ pressed }) => [
-            styles.buyBtn,
-            popular && styles.buyBtnPopular,
-            pressed && styles.buyBtnPressed,
-          ]}
-        >
-          <Text style={styles.buyBtnText}>Buy this pack</Text>
-        </Pressable>
+        {free ? (
+          <View style={styles.includedPill}>
+            <Text style={styles.includedPillText}>
+              Included with your account
+            </Text>
+          </View>
+        ) : (
+          <Pressable
+            onPress={onBuy}
+            testID={`package-buy-${pkg.id}`}
+            style={({ pressed }) => [
+              styles.buyBtn,
+              popular && styles.buyBtnPopular,
+              pressed && styles.buyBtnPressed,
+            ]}
+          >
+            <Text style={styles.buyBtnText}>Buy this pack</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -379,6 +410,19 @@ const styles = StyleSheet.create({
   buyBtnText: {
     ...typography.button,
     color: colors.white,
+  },
+  includedPill: {
+    height: layout.buttonHeightMd,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+  },
+  includedPillText: {
+    ...typography.button,
+    color: colors.textMuted,
   },
   howLink: {
     flexDirection: 'row',

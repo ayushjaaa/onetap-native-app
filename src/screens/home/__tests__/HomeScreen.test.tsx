@@ -1,13 +1,21 @@
 jest.mock('@/services/secureStorage');
 
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 import React from 'react';
-import { waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import {
   createTestStore,
   renderWithProviders,
 } from '@/test-utils/renderWithProviders';
 import { HomeScreen } from '@/screens/home/HomeScreen';
-import { setLocation } from '@/store/locationSlice';
+import { setUser } from '@/store/authSlice';
+import { setLocation, setBrowsingLocation } from '@/store/locationSlice';
+import { RADIUS_DEFAULT_KM } from '@/config/constants';
 
 const originalFetch = globalThis.fetch;
 
@@ -140,5 +148,130 @@ describe('HomeScreen trending (live feed)', () => {
         getByText('No trending listings yet — be the first to post!'),
       ).toBeTruthy();
     });
+  });
+});
+
+describe('HomeScreen — "Post an Ad" CTA gating', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    jest.clearAllMocks();
+  });
+
+  it('routes a mid-onboarding seller to IndividualOnboarding, not ListProduct', async () => {
+    mockFetchByUrl({ '/marketplace/categories/top': emptyCategoriesResponse });
+
+    const store = createTestStore();
+    store.dispatch(
+      setUser({
+        id: 'u1',
+        email: 'seller@test.com',
+        name: 'Test Seller',
+        role: 'user',
+        sellerType: 'individual',
+        // No sellerDisplayName / permissions — mid-onboarding, unapproved.
+      } as never),
+    );
+
+    const { getByText } = await renderWithProviders(<HomeScreen />, { store });
+
+    fireEvent.press(getByText('Post an Ad'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('IndividualOnboarding');
+    expect(mockNavigate).not.toHaveBeenCalledWith('ListProduct');
+  });
+
+  it('routes an approved seller straight to ListProduct', async () => {
+    mockFetchByUrl({ '/marketplace/categories/top': emptyCategoriesResponse });
+
+    const store = createTestStore();
+    store.dispatch(
+      setUser({
+        id: 'u2',
+        email: 'approved@test.com',
+        name: 'Approved Seller',
+        role: 'user',
+        permissions: ['identity:kyc_verified'],
+      } as never),
+    );
+
+    const { getByText } = await renderWithProviders(<HomeScreen />, { store });
+
+    fireEvent.press(getByText('Post an Ad'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('ListProduct');
+  });
+});
+
+describe('HomeScreen — radius filter sheet applies to the correct mode', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    jest.clearAllMocks();
+  });
+
+  const MUMBAI = {
+    latitude: 19.1,
+    longitude: 72.8,
+    city: 'Mumbai',
+    state: 'Maharashtra',
+    address: null,
+    pincode: null,
+  };
+
+  const INDORE = {
+    latitude: 22.7196,
+    longitude: 75.8577,
+    city: 'Indore',
+    state: 'Madhya Pradesh',
+    address: null,
+    pincode: null,
+  };
+
+  // Opens the sheet, drags the slider to a new value, taps Apply — mirrors
+  // how a real user would change the radius from Home.
+  async function applyRadiusViaSheet(getByTestId: any, newRadiusKm: number) {
+    fireEvent.press(getByTestId('home-radius-filter-button'));
+    fireEvent(getByTestId('radius-filter-slider'), 'valueChange', newRadiusKm);
+    fireEvent.press(getByTestId('radius-filter-apply-button'));
+  }
+
+  it('applying a new radius in real-GPS mode updates realLocationRadiusKm only, never browsingLocationRadiusKm', async () => {
+    mockFetchByUrl({ '/marketplace/categories/top': emptyCategoriesResponse });
+
+    const store = createTestStore();
+    store.dispatch(setLocation(MUMBAI));
+    // No browsingLocation set — isOverride is false, this is real-GPS mode.
+
+    const { getByTestId } = await renderWithProviders(<HomeScreen />, {
+      store,
+    });
+
+    expect(store.getState().location.browsingLocation).toBeNull();
+
+    await applyRadiusViaSheet(getByTestId, 75);
+
+    const state = store.getState().location;
+    expect(state.realLocationRadiusKm).toBe(75);
+    expect(state.browsingLocationRadiusKm).toBe(RADIUS_DEFAULT_KM);
+  });
+
+  it('applying a new radius in browsing mode updates browsingLocationRadiusKm only, never realLocationRadiusKm', async () => {
+    mockFetchByUrl({ '/marketplace/categories/top': emptyCategoriesResponse });
+
+    const store = createTestStore();
+    store.dispatch(setLocation(MUMBAI));
+    store.dispatch(setBrowsingLocation(INDORE)); // isOverride is now true.
+
+    const { getByTestId } = await renderWithProviders(<HomeScreen />, {
+      store,
+    });
+
+    await applyRadiusViaSheet(getByTestId, 120);
+
+    const state = store.getState().location;
+    expect(state.browsingLocationRadiusKm).toBe(120);
+    // The real-GPS radius (Mumbai's) must stay untouched by an apply that
+    // happened while browsing Indore — this is exactly the copy-paste-bug
+    // shape this test exists to catch.
+    expect(state.realLocationRadiusKm).toBe(RADIUS_DEFAULT_KM);
   });
 });

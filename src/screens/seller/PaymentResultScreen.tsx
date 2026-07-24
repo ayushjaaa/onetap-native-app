@@ -22,6 +22,8 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useAppSelector } from '@/hooks/useAppSelector';
+import { env } from '@/config/env';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { formatINR } from '@/data/packagesCatalog';
 import {
   useInitiatePackagePurchaseMutation,
@@ -58,9 +60,17 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
       //    catalog — the client only ever sends packageId, never a price.
       const order = await initiatePurchase({ packageId }).unwrap();
       setPkg(order.package);
+      console.log(
+        '[razorpay-debug] order from backend:',
+        JSON.stringify(order),
+      );
 
-      // 2. Hand off to the native Razorpay Checkout SDK.
-      const checkoutResult = await RazorpayCheckout.open({
+      // 2. Hand off to the native Razorpay Checkout SDK — unless this is an
+      //    E2E build (see env.ts), where it's replaced with the same
+      //    rejection shape a real user cancelling the sheet would produce.
+      //    A real "success" can't be mocked here since verifyPayment below
+      //    cryptographically checks the signature server-side.
+      const checkoutOptions = {
         description: `${order.package.name} pack — ${order.package.postCredits} listing slots`,
         currency: order.currency,
         key: order.keyId,
@@ -72,7 +82,29 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
           name: user?.name,
         },
         theme: { color: colors.primary },
-      });
+        // Disables Razorpay's own native "Something went wrong — GO BACK / RETRY"
+        // screen on a transient internal hiccup. Without this, the SDK can show
+        // that dialog even after the payment already succeeded, confusing users —
+        // with it off, a hiccup instead surfaces as a normal rejection to our own
+        // catch block below, which already has a friendly failure UI.
+        retry: { enabled: false },
+      };
+      console.log(
+        '[razorpay-debug] opening checkout with:',
+        JSON.stringify(checkoutOptions),
+      );
+
+      const checkoutResult = env.E2E_MOCK_PAYMENTS
+        ? await Promise.reject({
+            code: 2,
+            description: 'Payment cancelled by user (E2E mock)',
+          })
+        : await RazorpayCheckout.open(checkoutOptions);
+
+      console.log(
+        '[razorpay-debug] checkout result:',
+        JSON.stringify(checkoutResult),
+      );
 
       // 3. Confirm the signed payment with the backend. This never moves
       //    money itself — the wallet is credited by the verified webhook —
@@ -84,6 +116,11 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
         razorpay_signature: checkoutResult.razorpay_signature,
       }).unwrap();
 
+      console.log(
+        '[razorpay-debug] verifyResult:',
+        JSON.stringify(verifyResult),
+      );
+
       if (verifyResult.status === 'paid') {
         setState('success');
       } else if (verifyResult.status === 'processing') {
@@ -93,12 +130,24 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
         setFailureReason('Payment could not be confirmed.');
       }
     } catch (err) {
+      console.log('[razorpay-debug] caught error:', JSON.stringify(err), err);
       // RazorpayCheckout.open rejects with { code, description } on
       // cancel/failure — a plain object, not an RTK Query error shape.
+      // On some failure types (e.g. payment_authentication step errors),
+      // Razorpay's SDK sets `description` to a JSON-stringified internal
+      // error blob instead of plain text — never show that raw to the
+      // user, fall back to a friendly message instead.
       const razorpayErr = err as { code?: number; description?: string };
       if (razorpayErr?.description) {
+        const isPlainTextDescription = !razorpayErr.description
+          .trim()
+          .startsWith('{');
         setState('failure');
-        setFailureReason(razorpayErr.description);
+        setFailureReason(
+          isPlainTextDescription
+            ? razorpayErr.description
+            : "The payment couldn't be verified. Please try again.",
+        );
         return;
       }
       const mapped = mapApiError(err as never);
@@ -112,13 +161,15 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
     void runPayment();
   }, [runPayment]);
 
-  // Block Android hardware back while loading — exiting mid-payment would be
-  // ambiguous (charged? not charged?). Only after we have a final state can
-  // the user navigate away.
+  // Block Android hardware back while loading (exiting mid-payment would be
+  // ambiguous — charged? not charged?) and while showing a successful
+  // purchase (the user must use the explicit "List your first product" /
+  // "Back to home" buttons below, not silently back out of the confirmation
+  // without ever seeing their credited slots).
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-        return state === 'loading';
+        return state === 'loading' || state === 'success';
       });
       return () => sub.remove();
     }, [state]),
@@ -126,8 +177,12 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
 
   if (state === 'loading') {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.center}>
+      <SafeAreaView
+        style={styles.safe}
+        edges={['top']}
+        testID="payment-result-screen"
+      >
+        <View style={styles.center} testID="payment-loading">
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Preparing secure payment…</Text>
         </View>
@@ -161,22 +216,32 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={['top']}
+      testID="payment-result-screen"
+    >
       <View style={styles.header}>
-        <Pressable
-          onPress={() => navigation.popToTop()}
-          hitSlop={spacing.md}
-          style={styles.backBtn}
-        >
-          <ChevronLeft size={layout.iconSize.lg} color={colors.textPrimary} />
-        </Pressable>
+        {state !== 'success' ? (
+          <Pressable
+            onPress={() => navigation.popToTop()}
+            hitSlop={spacing.md}
+            style={styles.backBtn}
+          >
+            <ChevronLeft size={layout.iconSize.lg} color={colors.textPrimary} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.content}>
         {state === 'success' && pkg ? (
           <SuccessView pkg={pkg} email={user?.email ?? undefined} />
         ) : null}
-        {state === 'failure' ? <FailureView reason={failureReason} /> : null}
+        {state === 'failure' ? (
+          <View testID="payment-failure-view">
+            <FailureView reason={failureReason} />
+          </View>
+        ) : null}
         {state === 'pending' ? <PendingView /> : null}
       </View>
 
@@ -184,7 +249,16 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
         {state === 'success' ? (
           <>
             <Pressable
-              onPress={() => navigation.replace('ListProduct')}
+              // A package purchase never grants isSellerApproved on its
+              // own — route through the same gate as every other "Post"
+              // entry point instead of assuming ListProduct is reachable.
+              onPress={() =>
+                (
+                  navigation.replace as (
+                    screen: keyof MainStackParamList,
+                  ) => void
+                )(resolvePostAdDestination(user))
+              }
               style={({ pressed }) => [
                 styles.primaryBtn,
                 pressed && styles.primaryBtnPressed,
@@ -206,6 +280,7 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
           <>
             <Pressable
               onPress={runPayment}
+              testID="payment-retry-button"
               style={({ pressed }) => [
                 styles.primaryBtn,
                 pressed && styles.primaryBtnPressed,
@@ -216,6 +291,7 @@ export const PaymentResultScreen: React.FC<Props> = ({ route }) => {
             <Pressable
               onPress={() => navigation.goBack()}
               hitSlop={spacing.md}
+              testID="payment-pick-different-button"
               style={styles.secondaryBtn}
             >
               <Text style={styles.secondaryBtnText}>Pick a different pack</Text>
@@ -277,7 +353,7 @@ const FailureView: React.FC<{ reason?: string | null }> = ({ reason }) => (
     <Text style={styles.title}>Payment didn't go through</Text>
     <Text style={styles.body}>
       {reason ?? 'Something went wrong on the payment side.'} {`\n`}
-      Aapse koi paise nahi liye.
+      No money was charged.
     </Text>
   </>
 );
@@ -289,8 +365,8 @@ const PendingView: React.FC = () => (
     </View>
     <Text style={styles.title}>Payment status unclear</Text>
     <Text style={styles.body}>
-      Agar paise kate hain, hum 30 min ke andar refund karenge ya pack activate
-      kar denge. My Packages mein check kar sakte ho.
+      If any amount was deducted, we'll refund it or activate your package
+      within 24hr Check My Packages for the latest status.
     </Text>
   </>
 );

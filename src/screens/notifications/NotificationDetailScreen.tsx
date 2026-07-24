@@ -80,13 +80,20 @@ function getAction(
 
   switch (type) {
     case 'listing.approved':
-    case 'listing.rejected':
       return listingId
         ? {
             label: 'View listing',
             onPress: nav => nav.navigate('ListingDetail', { listingId }),
           }
         : null;
+    case 'listing.rejected':
+      // GET /listings/:id is public and only serves Live/Sold listings — a
+      // rejected one 404s there. My Ads already holds the full object (from
+      // GET /listings/mine) and has its own rejection-reason sheet.
+      return {
+        label: 'View in My Ads',
+        onPress: nav => nav.navigate('Tabs', { screen: 'MyAds' }),
+      };
     case 'transaction.completed':
       return {
         label: 'View transaction',

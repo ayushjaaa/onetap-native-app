@@ -9,29 +9,30 @@ export type AuthStackParamList = {
   SignUpName: undefined;
   SignUpEmail: undefined;
   SignUpPassword: undefined;
-  SignUpLocation:
-    | { fromGoogle?: boolean; user?: User; token?: string }
-    | undefined;
+  SignUpLocation: { fromGoogle?: boolean; user?: User } | undefined;
   Login: undefined;
-  Phone: {
-    email: string;
-    password?: string;
-    user?: User;
-    token?: string;
-    fromGoogle?: boolean;
-    needsLocation?: boolean;
-  };
+  // `undefined` covers RootNavigator landing here directly for a resumed session
+  // whose phone still isn't verified — PhoneScreen falls back to the Redux user
+  // in that case instead of relying on nav params from a fresh login/signup.
+  Phone:
+    | {
+        email?: string;
+        password?: string;
+        user?: User;
+        fromGoogle?: boolean;
+        needsLocation?: boolean;
+      }
+    | undefined;
   Otp: {
     email: string;
     password?: string;
     phone: string;
     user?: User;
-    token?: string;
     fromGoogle?: boolean;
     needsLocation?: boolean;
   };
   ForgotPasswordPhone: undefined;
-  ForgotPasswordOtp: { email: string };
+  ForgotPasswordOtp: { phone: string };
   ForgotPasswordReset: { token: string };
 };
 
@@ -91,8 +92,10 @@ export type MainStackParamList = {
   // endpoint on the backend — only list + unread-count + mark-read).
   NotificationDetail: { notificationId: string; notification: Notification };
   ForgotPasswordPhone: undefined;
-  ForgotPasswordOtp: { email: string };
+  ForgotPasswordOtp: { phone: string };
   ForgotPasswordReset: { token: string };
+  ChangeLocation: undefined;
+  UpdateLocation: undefined;
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> =

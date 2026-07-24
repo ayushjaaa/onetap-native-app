@@ -10,7 +10,7 @@ export const OfflineBanner: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Internet connection check karein</Text>
+      <Text style={styles.text}>No internet connection</Text>
     </View>
   );
 };

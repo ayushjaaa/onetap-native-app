@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -29,6 +30,9 @@ import {
 } from '@/api/productsApi';
 import { mapApiError } from '@/utils/errorMapper';
 import { useToast } from '@/hooks/useToast';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
+import { buildMediaUrl } from '@/utils/media';
 import type { Listing } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
@@ -51,6 +55,7 @@ interface MyListing {
   status: ListingStatus;
   postedAtIso: string;
   isExpired?: boolean;
+  photoUrl?: string;
   // Pending
   reviewEtaHours?: number;
   // Rejected
@@ -79,6 +84,7 @@ const toMyListing = (l: Listing): MyListing => {
     status: statusMap[l.status] ?? 'pending',
     postedAtIso: l.createdAt,
     isExpired: l.status === 'Expired',
+    photoUrl: l.photos?.[0],
     rejectionReason: l.rejectionReason,
     soldAtIso: l.soldAt,
   };
@@ -104,6 +110,7 @@ const formatShortDate = (iso: string): string => {
 export const MyAdsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const toast = useToast();
+  const user = useAppSelector(state => state.auth.user);
 
   const [activeTab, setActiveTab] = useState<ListingStatus>('live');
   const [rejectionSheet, setRejectionSheet] = useState<MyListing | null>(null);
@@ -160,7 +167,7 @@ export const MyAdsScreen: React.FC = () => {
   const handleRemove = (listing: MyListing) => {
     Alert.alert(
       'Remove this listing?',
-      'Aapko ek slot wapas mil jayega. Listing permanently delist ho jayegi.',
+      'You’ll get a slot back. This listing will be permanently delisted.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -189,8 +196,12 @@ export const MyAdsScreen: React.FC = () => {
     navigation.navigate('SalesHistory');
   };
 
+  // This tab is reachable by every logged-in user, not just approved
+  // sellers — a buyer with zero ads (or a mid-onboarding/rejected seller)
+  // can land here and tap "Post a new ad". Route through the same resume
+  // logic as the Home FAB instead of assuming they're already clear to post.
   const handlePostNew = () => {
-    navigation.navigate('ListProduct');
+    navigation.navigate(resolvePostAdDestination(user) as never);
   };
 
   const handleOpenWallet = () => {
@@ -204,7 +215,7 @@ export const MyAdsScreen: React.FC = () => {
         <Pressable onPress={handleOpenWallet} style={styles.walletChip}>
           <Wallet size={layout.iconSize.sm} color={colors.primary} />
           <Text style={styles.walletChipText}>
-            {slotsAvailable} slots · Wallet
+            {isLoading ? 'Wallet' : `${slotsAvailable} slots · Wallet`}
           </Text>
           <ChevronRight size={layout.iconSize.sm} color={colors.primary} />
         </Pressable>
@@ -218,6 +229,7 @@ export const MyAdsScreen: React.FC = () => {
           return (
             <Pressable
               key={tab.key}
+              testID={`my-ads-tab-${tab.key}`}
               onPress={() => setActiveTab(tab.key)}
               style={[styles.tab, isActive && styles.tabActive]}
               accessibilityRole="button"
@@ -298,13 +310,20 @@ const ListingCard: React.FC<ListingCardProps> = ({
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTopRow}>
-        <View
-          style={[
-            styles.thumb,
-            { backgroundColor: stubThumbColour(listing.id) },
-            isDim && styles.thumbDim,
-          ]}
-        />
+        {listing.photoUrl ? (
+          <Image
+            source={{ uri: buildMediaUrl(listing.photoUrl) }}
+            style={[styles.thumb, isDim && styles.thumbDim]}
+          />
+        ) : (
+          <View
+            style={[
+              styles.thumb,
+              { backgroundColor: stubThumbColour(listing.id) },
+              isDim && styles.thumbDim,
+            ]}
+          />
+        )}
         <View style={styles.cardText}>
           <Text
             style={[styles.cardTitle, isDim && styles.cardTitleDim]}
@@ -412,25 +431,25 @@ const EMPTY_COPY: Record<
 > = {
   pending: {
     title: 'No pending ads',
-    body: 'Aapne abhi tak kuch post nahi kiya.',
+    body: 'You haven’t posted anything yet.',
     cta: 'Post a new ad',
     showCta: true,
   },
   live: {
     title: 'No live ads',
-    body: 'Live listings yahaan dikhayi denge.',
+    body: 'Your live listings will show up here.',
     cta: 'Post a new ad',
     showCta: true,
   },
   rejected: {
     title: 'No rejected ads — good going!',
-    body: 'Sab clear. Listing guidelines respect karte raho.',
+    body: 'All clear. Keep following the listing guidelines.',
     cta: 'Post a new ad',
     showCta: true,
   },
   sold: {
     title: 'No sales yet',
-    body: 'Active listings yahaan transfer ho jayenge jab sell ho.',
+    body: 'Listings will move here once they sell.',
     cta: 'Post a new ad',
     showCta: true,
   },
@@ -478,8 +497,8 @@ const RejectionReasonSheet: React.FC<RejectionReasonSheetProps> = ({
               </Text>
             </View>
             <Text style={styles.sheetHint}>
-              Listings are immutable — rejected listings can't be edited. Aap
-              naya listing post kar sakte ho (1 slot consume hoga).
+              Rejected listings can't be edited. You can post a new listing
+              instead (uses 1 slot).
             </Text>
             <Pressable
               onPress={onRepost}

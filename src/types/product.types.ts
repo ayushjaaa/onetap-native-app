@@ -92,6 +92,8 @@ export interface GetFeedParams {
   condition?: ListingCondition;
   minPrice?: number;
   maxPrice?: number;
+  /** Search radius in km (1-200) — see useEffectiveLocation's radiusKm. */
+  radius?: number;
 }
 
 export interface GetFeedResponseData {
@@ -104,6 +106,8 @@ export interface GetTrendingParams {
   lat: number;
   lng: number;
   limit?: number;
+  /** Search radius in km (1-200) — see useEffectiveLocation's radiusKm. */
+  radius?: number;
 }
 
 export interface GetTrendingResponseData {

@@ -33,11 +33,6 @@ export const phoneSchema = z
 
 export const otpSchema = z.string().regex(/^\d{4}$/, 'OTP must be 4 digits');
 
-export const resetTokenSchema = z
-  .string()
-  .trim()
-  .min(1, 'Reset token is required');
-
 export const signupSchema = z.object({
   name: nameSchema,
   email: emailSchema,
@@ -64,20 +59,6 @@ export const otpFormSchema = z.object({
 });
 
 export type OtpFormData = z.infer<typeof otpFormSchema>;
-
-export const forgotPasswordEmailSchema = z.object({
-  email: emailSchema,
-});
-
-export type ForgotPasswordEmailFormData = z.infer<
-  typeof forgotPasswordEmailSchema
->;
-
-export const resetTokenFormSchema = z.object({
-  token: resetTokenSchema,
-});
-
-export type ResetTokenFormData = z.infer<typeof resetTokenFormSchema>;
 
 export const resetPasswordSchema = z
   .object({

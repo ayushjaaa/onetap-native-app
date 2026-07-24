@@ -1,10 +1,5 @@
 import React from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Home,
@@ -52,6 +47,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
             return (
               <Pressable
                 key={item.key}
+                testID={`nav-${item.key}`}
                 onPress={() => onChange(item.key)}
                 style={styles.tab}
                 hitSlop={4}

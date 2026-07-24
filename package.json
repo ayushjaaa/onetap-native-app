@@ -16,6 +16,9 @@
     "e2e:test:ios": "detox test -c ios.sim.debug",
     "e2e:build:android": "detox build -c android.emu.debug",
     "e2e:test:android": "detox test -c android.emu.debug",
+    "e2e:build:android:mock-photos": "ENVFILE=.env.e2e detox build -c android.emu.debug",
+    "e2e:build:android:device": "detox build -c android.att.debug",
+    "e2e:test:android:device": "detox test -c android.att.debug",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -29,8 +32,8 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
-    "@react-native-community/geolocation": "^3.4.0",
     "@react-native-community/netinfo": "^12.0.1",
+    "@react-native-community/slider": "^5.2.0",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-native/new-app-screen": "0.85.2",
     "@react-navigation/bottom-tabs": "^7.15.11",
@@ -43,10 +46,12 @@
     "react-native": "0.85.2",
     "react-native-bootsplash": "^7.3.1",
     "react-native-config": "^1.6.1",
+    "react-native-geolocation-service": "^5.3.1",
     "react-native-gesture-handler": "^2.31.2",
     "react-native-image-picker": "^8.2.1",
     "react-native-keychain": "^10.0.0",
     "react-native-linear-gradient": "^2.8.3",
+    "react-native-maps": "^1.29.0",
     "react-native-mmkv": "^4.3.1",
     "react-native-nitro-modules": "^0.35.6",
     "react-native-otp-verify": "^1.2.0",

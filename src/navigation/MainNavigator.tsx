@@ -34,6 +34,8 @@ import { NotificationDetailScreen } from '@/screens/notifications/NotificationDe
 import { ForgotPasswordPhoneScreen } from '@/screens/auth/ForgotPasswordPhoneScreen';
 import { ForgotPasswordOtpScreen } from '@/screens/auth/ForgotPasswordOtpScreen';
 import { ForgotPasswordResetScreen } from '@/screens/auth/ForgotPasswordResetScreen';
+import { ChangeLocationScreen } from '@/screens/location/ChangeLocationScreen';
+import { UpdateLocationScreen } from '@/screens/profile/UpdateLocationScreen';
 import { BottomNavBar, type NavTabKey } from '@/components/marketplace';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useNotificationToasts } from '@/hooks/useNotificationToasts';
@@ -161,6 +163,8 @@ export const MainNavigator: React.FC = () => {
         name="ForgotPasswordReset"
         component={ForgotPasswordResetScreen}
       />
+      <Stack.Screen name="ChangeLocation" component={ChangeLocationScreen} />
+      <Stack.Screen name="UpdateLocation" component={UpdateLocationScreen} />
     </Stack.Navigator>
   );
 };

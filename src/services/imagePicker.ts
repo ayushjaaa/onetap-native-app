@@ -19,15 +19,28 @@ const PICKER_OPTIONS = {
 // PermissionsAndroid step needed here (unlike requestLocationPermission in
 // utils/permissions.ts, which gates a non-picker native module).
 
-export async function pickImageFromLibrary(): Promise<PickedImage | null> {
-  const result = await launchImageLibrary(PICKER_OPTIONS);
-  const asset = result.assets?.[0];
-  if (result.didCancel || !asset?.uri) return null;
-  return {
-    uri: asset.uri,
-    name: asset.fileName ?? `photo-${Date.now()}.jpg`,
-    type: asset.type ?? 'image/jpeg',
-  };
+/**
+ * `selectionLimit` caps how many photos the native picker lets the user tap
+ * at once — pass the number of remaining slots so a listing near its max
+ * can't multi-select past it. `1` (the default) keeps single-select for
+ * callers like avatar upload, where more than one result would be silently
+ * wrong. `0` means "no limit" per react-native-image-picker's own API.
+ */
+export async function pickImagesFromLibrary(
+  selectionLimit = 1,
+): Promise<PickedImage[]> {
+  const result = await launchImageLibrary({
+    ...PICKER_OPTIONS,
+    selectionLimit,
+  });
+  if (result.didCancel || !result.assets?.length) return [];
+  return result.assets
+    .filter((asset): asset is typeof asset & { uri: string } => !!asset.uri)
+    .map(asset => ({
+      uri: asset.uri,
+      name: asset.fileName ?? `photo-${Date.now()}.jpg`,
+      type: asset.type ?? 'image/jpeg',
+    }));
 }
 
 export async function pickImageFromCamera(): Promise<PickedImage | null> {

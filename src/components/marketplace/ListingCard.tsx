@@ -20,6 +20,7 @@ export interface ListingCardProps {
   time: string;
   onPress?: () => void;
   style?: ViewStyle;
+  testID?: string;
 }
 
 export const ListingCard: React.FC<ListingCardProps> = ({
@@ -32,12 +33,14 @@ export const ListingCard: React.FC<ListingCardProps> = ({
   time,
   onPress,
   style,
+  testID,
 }) => {
   const [imageFailed, setImageFailed] = React.useState(false);
 
   return (
     <Pressable
       onPress={onPress}
+      testID={testID}
       style={({ pressed }) => [
         styles.container,
         pressed && styles.pressed,

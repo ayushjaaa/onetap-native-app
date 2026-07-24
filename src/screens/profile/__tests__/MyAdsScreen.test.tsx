@@ -1,9 +1,20 @@
 jest.mock('@/services/secureStorage');
 
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ navigate: mockNavigate }),
+  useFocusEffect: jest.fn(),
+}));
+
 import React from 'react';
 import { fireEvent, waitFor } from '@testing-library/react-native';
-import { renderWithProviders } from '@/test-utils/renderWithProviders';
+import {
+  createTestStore,
+  renderWithProviders,
+} from '@/test-utils/renderWithProviders';
 import { MyAdsScreen } from '@/screens/profile/MyAdsScreen';
+import { setUser } from '@/store/authSlice';
 
 const originalFetch = globalThis.fetch;
 
@@ -160,5 +171,61 @@ describe('MyAdsScreen', () => {
     });
 
     alertSpy.mockRestore();
+  });
+});
+
+describe('MyAdsScreen — empty-tab "Post a new ad" gating', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    jest.clearAllMocks();
+  });
+
+  it('routes a mid-onboarding seller to IndividualOnboarding, not ListProduct', async () => {
+    mockMyListings([]);
+
+    const store = createTestStore();
+    store.dispatch(
+      setUser({
+        id: 'u1',
+        email: 'seller@test.com',
+        name: 'Test Seller',
+        role: 'user',
+        sellerType: 'individual',
+      } as never),
+    );
+
+    const { getByText } = await renderWithProviders(<MyAdsScreen />, {
+      store,
+    });
+
+    await waitFor(() => expect(getByText('Post a new ad')).toBeTruthy());
+    fireEvent.press(getByText('Post a new ad'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('IndividualOnboarding');
+    expect(mockNavigate).not.toHaveBeenCalledWith('ListProduct');
+  });
+
+  it('routes an approved seller straight to ListProduct', async () => {
+    mockMyListings([]);
+
+    const store = createTestStore();
+    store.dispatch(
+      setUser({
+        id: 'u2',
+        email: 'approved@test.com',
+        name: 'Approved Seller',
+        role: 'user',
+        permissions: ['identity:kyc_verified'],
+      } as never),
+    );
+
+    const { getByText } = await renderWithProviders(<MyAdsScreen />, {
+      store,
+    });
+
+    await waitFor(() => expect(getByText('Post a new ad')).toBeTruthy());
+    fireEvent.press(getByText('Post a new ad'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('ListProduct');
   });
 });

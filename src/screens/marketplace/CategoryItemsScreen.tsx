@@ -10,10 +10,11 @@ import { ChevronLeft, LayoutGrid, List as ListIcon } from 'lucide-react-native';
 import { EmptyState, ListingCard } from '@/components/marketplace';
 import { ShimmerCard, Shimmer } from '@/components/common/Shimmer';
 import { formatRelativeShort } from '@/data/listingsStub';
+import { buildMediaUrl } from '@/utils/media';
 import { useGetCategoryTreeQuery } from '@/api/categoriesApi';
 import { useGetFeedQuery } from '@/api/productsApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
-import { useAppSelector } from '@/hooks/useAppSelector';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 import type { CategoryNode, Listing } from '@/types';
@@ -32,7 +33,7 @@ const formatPricePaise = (paise: number): string =>
 
 const toCardData = (listing: Listing) => ({
   id: listing._id,
-  image: listing.photos[0],
+  image: listing.photos[0] ? buildMediaUrl(listing.photos[0]) : undefined,
   title: listing.title,
   price: formatPricePaise(listing.price),
   location: listing.address ?? '',
@@ -47,8 +48,8 @@ export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
   const [activeSub, setActiveSub] = useState(subcategoryId ?? 'all');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
 
-  const location = useAppSelector(state => state.location);
-  const hasLocation = location.latitude != null && location.longitude != null;
+  const location = useEffectiveLocation();
+  const { hasLocation } = location;
 
   const { data: tree, isLoading: categoriesLoading } =
     useGetCategoryTreeQuery();
@@ -71,6 +72,7 @@ export const CategoryItemsScreen: React.FC<Props> = ({ route }) => {
       ? {
           lat: location.latitude as number,
           lng: location.longitude as number,
+          radius: location.radiusKm,
           category: selectedLeafId,
         }
       : skipToken,

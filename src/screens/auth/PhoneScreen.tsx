@@ -11,6 +11,9 @@ import { PhoneInput } from '@/components/auth/PhoneInput';
 import { phoneFormSchema, type PhoneFormData } from '@/utils/schemas';
 import { useSendOtpMutation } from '@/api/authApi';
 import { useToast } from '@/hooks/useToast';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import { useAppDispatch } from '@/hooks/useAppDispatch';
+import { logout } from '@/store/authSlice';
 import { secureStorage } from '@/services/secureStorage';
 import { mapApiError } from '@/utils/errorMapper';
 import { colors, spacing, typography } from '@/theme';
@@ -25,11 +28,34 @@ type Route = AuthScreenProps<'Phone'>['route'];
 export const PhoneScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { email, password, user, token, fromGoogle, needsLocation } =
-    route.params;
+  // RootNavigator lands here with no params for a resumed, still-unverified
+  // session — fall back to the already-hydrated Redux user in that case.
+  const reduxUser = useAppSelector(state => state.auth.user);
+  const params = route.params;
+  const email = params?.email ?? reduxUser?.email ?? '';
+  const password = params?.password;
+  const user = params?.user ?? reduxUser ?? undefined;
+  const fromGoogle = params?.fromGoogle;
+  const needsLocation = params?.needsLocation;
   const toast = useToast();
+  const dispatch = useAppDispatch();
 
   const [sendOtp, { isLoading }] = useSendOtpMutation();
+
+  // A resumed unverified session lands here with no prior screen in this
+  // navigator's stack (RootNavigator mounts AuthNavigator with
+  // initialRouteName="Phone" directly) — navigation.goBack() has nowhere to
+  // go and just logs a "GO_BACK not handled" warning. Treat back-with-nothing
+  // -to-go-back-to as abandoning verification: log out and let RootNavigator
+  // fall through to the normal Welcome/Login screen.
+  const handleBack = async () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    await secureStorage.clearToken();
+    dispatch(logout());
+  };
 
   const {
     control,
@@ -37,37 +63,38 @@ export const PhoneScreen: React.FC = () => {
     formState: { errors, touchedFields, isValid },
   } = useForm<PhoneFormData>({
     resolver: zodResolver(phoneFormSchema),
-    defaultValues: { phone: '' },
+    // Backend now requires the entered number to match the number already on
+    // file, so prefill it when we already know it (resumed session) instead
+    // of making the user retype their own number.
+    defaultValues: { phone: reduxUser?.phone ?? '' },
     mode: 'onTouched',
   });
 
   const onSubmit = async (values: PhoneFormData) => {
     try {
-      // The real send-otp endpoint requires a bearer token (authMiddleware).
-      // Persist it to Keychain now — OtpScreen only persisted it after
-      // verification succeeded, which is too late for this call to succeed.
-      if (token) {
-        await secureStorage.saveToken(token);
-      }
-      await sendOtp({ phone: values.phone }).unwrap();
+      // Bearer token was already persisted to Keychain right after login —
+      // send-otp (authMiddleware-protected) picks it up automatically.
+      console.log('[sendOtp] payload:', { phone: values.phone });
+      const response = await sendOtp({ phone: values.phone }).unwrap();
+      console.log('[sendOtp] raw response:', response);
       navigation.navigate('Otp', {
         email,
         password,
         phone: values.phone,
         user,
-        token,
         fromGoogle,
         needsLocation,
       });
     } catch (err) {
+      console.log('[sendOtp] raw error response:', err);
       const mapped = mapApiError(err as never);
       toast.error({ title: 'Could not send OTP', message: mapped.message });
     }
   };
 
   return (
-    <Screen scrollable>
-      <Header title="Sign Up" onBack={() => navigation.goBack()} />
+    <Screen scrollable testID="phone-verification-screen">
+      <Header title="Sign Up" onBack={handleBack} />
 
       <View style={styles.spacer} />
 

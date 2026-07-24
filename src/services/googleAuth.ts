@@ -95,7 +95,17 @@ const mapErrorToResult = (err: unknown): GoogleSignInResult => {
       message: 'Network issue. Check your internet.',
     };
   }
-  return { ok: false, code: 'UNKNOWN', message };
+  // Any other native SDK exception — never surface its raw message (can be
+  // a stack-trace-like string or internal error code), same reasoning as
+  // the Razorpay JSON-blob guard in PaymentResultScreen.tsx.
+  if (__DEV__) {
+    console.log('[googleAuth] unrecognized sign-in error:', message);
+  }
+  return {
+    ok: false,
+    code: 'UNKNOWN',
+    message: 'Google sign-in failed. Please try again.',
+  };
 };
 
 const signIn = async (): Promise<GoogleSignInResult> => {

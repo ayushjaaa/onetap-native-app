@@ -4,6 +4,7 @@ export interface WalletPackage {
   postCredits: number;
   priceInPaise: number;
   description: string;
+  benefits: string[];
 }
 
 export interface GetPackagesResponseData {

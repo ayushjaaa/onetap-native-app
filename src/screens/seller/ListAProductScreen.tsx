@@ -28,6 +28,7 @@ import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { useToast } from '@/hooks/useToast';
 import { useLocation } from '@/hooks/useLocation';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { setLocation as setLocationAction } from '@/store/locationSlice';
 import {
   type CategoryPickResult,
@@ -74,8 +75,10 @@ const CONDITION_TO_BACKEND: Record<Condition, ListingCondition> = {
   parts: 'Poor',
 };
 
+const PHOTO_MIN = 4;
 const PHOTO_MAX = 8;
 const TITLE_MAX = 100;
+const DESC_MIN = 20;
 const DESC_MAX = 2000;
 
 // Regexes to soft-warn about contact info pasted into the title / desc.
@@ -98,6 +101,22 @@ export const ListAProductScreen: React.FC = () => {
   const user = useAppSelector(state => state.auth.user);
   const location = useAppSelector(state => state.location);
   const hasLocation = location.latitude != null && location.longitude != null;
+
+  // Last line of defense: every entry point (bottom-nav Post tab, Home,
+  // MyAds, CategoryBrowse, Profile, ProductWallet, PaymentResult) already
+  // routes through resolvePostAdDestination before landing here, but this
+  // screen must not *rely* on every caller getting that right — a future
+  // caller, a deep link, or a stale nav-stack entry could still push
+  // ListProduct directly. The real server-side gate (`listing:create`
+  // requires identity:kyc_verified) would 403 the submit either way, but an
+  // unapproved user should never even see the form.
+  useEffect(() => {
+    if (!user?.isSellerApproved) {
+      (navigation.replace as (screen: keyof MainStackParamList) => void)(
+        resolvePostAdDestination(user),
+      );
+    }
+  }, [user, navigation]);
 
   // locationSlice is normally only populated once, during signup — an
   // account created before that step existed, or one that skipped/denied
@@ -151,20 +170,31 @@ export const ListAProductScreen: React.FC = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
 
-  // Frontend field-level validation (length/format/required checks) was
-  // intentionally removed on request — the "Post ad" button is always
-  // tappable and the real backend (POST /marketplace/listings) is the
-  // single source of truth for what's valid, returning a 400 with a clear
-  // message for anything missing/malformed, surfaced via the error toast in
-  // handleSubmit. `category`/`condition` are still guarded there (not as
-  // validation, just because they're read directly into the request body
-  // and there's nothing sensible to send if nothing was picked).
   const trimmedTitle = title.trim();
+  const trimmedDescription = description.trim();
   const priceNum = priceStr.trim() === '' ? NaN : Number(priceStr);
   const hasSlot = slotsAvailable > 0;
 
   const titleContactWarn = containsContact(trimmedTitle);
   const descContactWarn = containsContact(description);
+
+  // Gates the "Post ad" button — mirrors the backend's real requirements
+  // (POST /marketplace/listings still re-validates everything server-side,
+  // this is just so the button reflects whether submitting would succeed
+  // instead of always being tappable and bouncing off a 400).
+  const isFormValid =
+    photos.length >= PHOTO_MIN &&
+    photos.length <= PHOTO_MAX &&
+    trimmedTitle.length > 0 &&
+    !titleContactWarn &&
+    trimmedDescription.length >= DESC_MIN &&
+    trimmedDescription.length <= DESC_MAX &&
+    !descContactWarn &&
+    category != null &&
+    condition != null &&
+    !isNaN(priceNum) &&
+    priceNum > 0 &&
+    hasLocation;
 
   const locationLine = useMemo(() => {
     if (!user?.location) return null;
@@ -182,9 +212,9 @@ export const ListAProductScreen: React.FC = () => {
       });
       return;
     }
-    const url = await pickListingPhoto();
-    if (!url) return;
-    setPhotos(prev => [...prev, { url }]);
+    const urls = await pickListingPhoto(PHOTO_MAX - photos.length);
+    if (urls.length === 0) return;
+    setPhotos(prev => [...prev, ...urls.map(url => ({ url }))]);
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -205,6 +235,13 @@ export const ListAProductScreen: React.FC = () => {
     // those two are read directly into the request payload below and there
     // is no sensible value to send in their place (not a length/format
     // check, just "was anything picked at all").
+    if (description.trim().length < DESC_MIN) {
+      toast.error({
+        title: 'Description too short',
+        message: `Add at least ${DESC_MIN} characters describing the product.`,
+      });
+      return;
+    }
     if (!category) {
       toast.error({
         title: 'Pick a category',
@@ -236,13 +273,14 @@ export const ListAProductScreen: React.FC = () => {
         condition: CONDITION_TO_BACKEND[condition],
         lat: location.latitude,
         lng: location.longitude,
+        address: location.address ?? undefined,
         photos: photos.map(p => p.url),
       }).unwrap();
 
       toast.success({
         title: 'Submitted for review',
         message:
-          'Aapka listing admin review mein hai. ~24h mein notify karenge.',
+          'Your listing is under review. We’ll notify you within ~24 hours.',
       });
 
       // Drop the user on the MyAds tab so they can see their submission in
@@ -288,9 +326,9 @@ export const ListAProductScreen: React.FC = () => {
           </View>
           <Text style={styles.noSlotsTitle}>You're out of posting slots</Text>
           <Text style={styles.noSlotsBody}>
-            Aapke saare posting slots use ho chuke hain. Naya product post karne
-            ke liye ek package khareedein — sold ya rejected listings se bhi
-            slot wapas mil jaata hai.
+            You've used all your posting slots. Buy a package to post a new
+            product — slots are also freed up when a listing sells or is
+            rejected.
           </Text>
 
           <Pressable
@@ -316,7 +354,11 @@ export const ListAProductScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView
+      testID="list-a-product-screen"
+      style={styles.safe}
+      edges={['top']}
+    >
       <View style={styles.header}>
         <Pressable
           onPress={navigation.goBack}
@@ -348,7 +390,9 @@ export const ListAProductScreen: React.FC = () => {
           keyboardShouldPersistTaps="handled"
         >
           {/* Photos */}
-          <SectionLabel text="Photos (optional, up to 8) — first is cover" />
+          <SectionLabel
+            text={`Photos (${PHOTO_MIN}–${PHOTO_MAX} required) — first is cover`}
+          />
           <View style={styles.photoGrid}>
             {Array.from({ length: PHOTO_MAX }).map((_, i) => {
               const photo = photos[i];
@@ -408,7 +452,11 @@ export const ListAProductScreen: React.FC = () => {
             })}
           </View>
           <Text style={styles.fieldHint}>
-            JPG/PNG, max 5MB each. GPS data auto-stripped.
+            {photos.length < PHOTO_MIN
+              ? `Add at least ${PHOTO_MIN - photos.length} more photo${
+                  PHOTO_MIN - photos.length === 1 ? '' : 's'
+                } — clear shots from different angles sell faster.`
+              : 'Looking good — add a few more angles if you have them.'}
           </Text>
 
           {/* Title */}
@@ -430,8 +478,8 @@ export const ListAProductScreen: React.FC = () => {
               ]}
             >
               {titleContactWarn
-                ? '⚠ Contact info auto-flagged. Buyers get your phone after they tap Buy.'
-                : 'Be specific. Buyers skim titles.'}
+                ? '⚠ Remove phone numbers or UPI IDs — buyers get your verified contact after they buy.'
+                : 'Give the product a clear title — what it is, brand, and model.'}
             </Text>
             <Text style={styles.counter}>
               {trimmedTitle.length}/{TITLE_MAX}
@@ -458,8 +506,10 @@ export const ListAProductScreen: React.FC = () => {
               ]}
             >
               {descContactWarn
-                ? '⚠ Contact info auto-flagged in description.'
-                : 'Min 20 chars. No phone/UPI — auto-flagged.'}
+                ? '⚠ Remove phone numbers or UPI IDs from the description.'
+                : description.trim().length < DESC_MIN
+                ? `At least ${DESC_MIN} characters — mention condition, accessories, and why you're selling.`
+                : 'Mention condition, accessories included, and why you’re selling.'}
             </Text>
             <Text style={styles.counter}>
               {description.length}/{DESC_MAX}
@@ -528,7 +578,9 @@ export const ListAProductScreen: React.FC = () => {
               editable={!submitting}
             />
           </View>
-          <Text style={styles.fieldHint}>Cash on Delivery only.</Text>
+          <Text style={styles.fieldHint}>
+            Set a fair price — buyers can still negotiate before they buy.
+          </Text>
 
           {/* Negotiable */}
           <View style={styles.negotiableRow}>
@@ -570,9 +622,17 @@ export const ListAProductScreen: React.FC = () => {
                   </Text>
                 </Pressable>
               ) : (
-                <Text style={styles.locationHint}>
-                  Different jagah ka product? Profile se location update karein.
-                </Text>
+                <Pressable
+                  onPress={() =>
+                    navigation.getParent()?.navigate('Profile' as never)
+                  }
+                  hitSlop={spacing.sm}
+                >
+                  <Text style={[styles.locationHint, styles.locationHintLink]}>
+                    Selling from a different location? Update it in your
+                    profile.
+                  </Text>
+                </Pressable>
               )}
             </View>
           </View>
@@ -588,11 +648,12 @@ export const ListAProductScreen: React.FC = () => {
         </View>
         <Pressable
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || !isFormValid}
+          testID="list-a-product-submit-button"
           style={({ pressed }) => [
             styles.primaryBtn,
-            submitting && styles.primaryBtnDisabled,
-            pressed && !submitting && styles.primaryBtnPressed,
+            (submitting || !isFormValid) && styles.primaryBtnDisabled,
+            pressed && !submitting && isFormValid && styles.primaryBtnPressed,
           ]}
         >
           {submitting ? (
@@ -693,14 +754,14 @@ const SlotChipSheet: React.FC<SlotChipSheetProps> = ({
         {slotsAvailable} {slotsAvailable === 1 ? 'slot' : 'slots'} available
       </Text>
       <Text style={styles.slotSheetBody}>
-        Har post 1 slot consume karta hai. Slot wapas mil jaata hai jab listing
-        sold ho ya admin reject kare.
+        Each post uses 1 slot. A slot is freed up when a listing sells or is
+        rejected by an admin.
       </Text>
       {slotsAvailable === 0 ? (
         <View style={styles.slotSheetWarn}>
           <AlertTriangle size={layout.iconSize.sm} color={colors.error} />
           <Text style={styles.slotSheetWarnText}>
-            Aapke paas slots khatam ho gaye. Buy more to keep posting.
+            You're out of slots. Buy more to keep posting.
           </Text>
         </View>
       ) : null}
@@ -1028,6 +1089,10 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     marginTop: spacing['2xs'],
+  },
+  locationHintLink: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
 
   // Bottom bar

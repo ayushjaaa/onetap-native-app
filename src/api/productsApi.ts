@@ -93,6 +93,10 @@ export const productsApi = baseApi.injectEndpoints({
       extraOptions: { maxRetries: 0 },
       invalidatesTags: (_result, _error, { listingId }) => [
         { type: 'Listing' as const, id: listingId },
+        // Without this, getMyInterestsAsBuyer's cache never refreshes after a
+        // successful express-interest call, so hasExpressedInterest goes stale
+        // on remount and the CTA reappears as if the buyer never interested.
+        { type: 'Listing' as const, id: 'INTERESTS_MINE' },
       ],
     }),
 
@@ -160,6 +164,23 @@ export const productsApi = baseApi.injectEndpoints({
       ],
     }),
 
+    createListingEditRequest: builder.mutation<
+      { editRequest: unknown },
+      { id: string; price: number; description: string }
+    >({
+      query: ({ id, price, description }) => ({
+        url: `/marketplace/listings/${id}/edit-request`,
+        method: 'POST',
+        body: { price, description },
+      }),
+      transformResponse: (response: ApiResponse<{ editRequest: unknown }>) =>
+        response.data,
+      extraOptions: { maxRetries: 0 },
+      invalidatesTags: (_result, _error, { id }) => [
+        { type: 'Listing' as const, id },
+      ],
+    }),
+
     searchListings: builder.query<
       SearchListingsResponseData,
       SearchListingsParams
@@ -172,7 +193,16 @@ export const productsApi = baseApi.injectEndpoints({
       transformResponse: (response: ApiResponse<SearchListingsResponseData>) =>
         response.data,
       keepUnusedDataFor: 30,
-      providesTags: [{ type: 'Listing' as const, id: 'SEARCH' }],
+      providesTags: result =>
+        result
+          ? [
+              { type: 'Listing' as const, id: 'SEARCH' },
+              ...result.listings.map(l => ({
+                type: 'Listing' as const,
+                id: l._id,
+              })),
+            ]
+          : [{ type: 'Listing' as const, id: 'SEARCH' }],
     }),
 
     autocompleteSearch: builder.query<SearchAutocompleteResponseData, string>({
@@ -222,6 +252,7 @@ export const {
   useGetListingByIdQuery,
   useCreateListingMutation,
   useDeleteListingMutation,
+  useCreateListingEditRequestMutation,
   useSearchListingsQuery,
   useAutocompleteSearchQuery,
   useGetTrendingSearchesQuery,
