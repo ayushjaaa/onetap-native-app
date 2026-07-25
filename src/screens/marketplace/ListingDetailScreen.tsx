@@ -52,6 +52,7 @@ import {
   useGetListingQuery,
   useDeleteListingMutation,
   useCreateListingEditRequestMutation,
+  useLazyRevealListingPhoneQuery,
 } from '@/api/productsApi';
 import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
 import {
@@ -176,6 +177,8 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const [createListingEditRequest, { isLoading: submittingEditRequest }] =
     useCreateListingEditRequestMutation();
   const [selectBuyer] = useSelectBuyerMutation();
+  const [triggerRevealPhone, { isFetching: revealingPhone }] =
+    useLazyRevealListingPhoneQuery();
 
   const isSellerMode =
     !!listing && !!currentUserId && listing.sellerId === currentUserId;
@@ -271,11 +274,29 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         )
       : null;
 
-  const handleCallSeller = (phone: string) => {
+  const dialPhone = (phone: string) => {
     const dialUrl = `tel:${phone.startsWith('+') ? phone : `+${phone}`}`;
     Linking.openURL(dialUrl).catch(() => {
       Alert.alert('Could not open dialer', 'Please dial the number manually.');
     });
+  };
+
+  // Single tap = reveal + call: fetches the seller's number (free on repeat
+  // taps for this listing — served from RTK Query's cache, matching the
+  // backend's own per-buyer-per-listing dedupe) then dials immediately.
+  const handleCallSeller = async () => {
+    try {
+      const result = await triggerRevealPhone({
+        listingId: listing._id,
+      }).unwrap();
+      dialPhone(result.phone);
+    } catch (err) {
+      const mapped = mapApiError(err as never);
+      toast.error({
+        title: "Couldn't get seller's number",
+        message: mapped.message,
+      });
+    }
   };
 
   const handleBuyTap = () => {
@@ -649,15 +670,21 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                     </Text>
                   ) : null}
                 </View>
-                {listing.seller?.phone ? (
-                  <Pressable
-                    onPress={() => handleCallSeller(listing.seller!.phone!)}
-                    style={styles.callSellerBtn}
-                    hitSlop={spacing.sm}
-                  >
+                <Pressable
+                  onPress={handleCallSeller}
+                  disabled={revealingPhone}
+                  style={[
+                    styles.callSellerBtn,
+                    revealingPhone && styles.callSellerBtnDisabled,
+                  ]}
+                  hitSlop={spacing.sm}
+                >
+                  {revealingPhone ? (
+                    <ActivityIndicator size="small" color={colors.white} />
+                  ) : (
                     <Phone size={layout.iconSize.sm} color={colors.white} />
-                  </Pressable>
-                ) : null}
+                  )}
+                </Pressable>
               </View>
             </>
           ) : null}
@@ -1457,6 +1484,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  callSellerBtnDisabled: {
+    opacity: 0.6,
   },
 
   // Bottom bar (buyer)

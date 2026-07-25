@@ -15,6 +15,7 @@ import type {
   GetTrendingSearchesParams,
   GetTrendingSearchesResponseData,
   Listing,
+  RevealPhoneResponse,
   SearchAutocompleteResponseData,
   SearchListingsParams,
   SearchListingsResponseData,
@@ -76,6 +77,23 @@ export const productsApi = baseApi.injectEndpoints({
       transformResponse: (response: ApiResponse<GetListingResponseData>) =>
         response.data,
       providesTags: (_result, _error, id) => [{ type: 'Listing' as const, id }],
+    }),
+
+    // Lazy, cache-first: only fires on an explicit "Call Seller" tap, and RTK
+    // Query's normalized cache (keyed by listingId) means a repeat tap in the
+    // same session reuses the cached number with no network call — matching
+    // the backend's own per-(buyer,listing) dedupe.
+    revealListingPhone: builder.query<
+      RevealPhoneResponse,
+      { listingId: string }
+    >({
+      query: ({ listingId }) => ({
+        url: `/marketplace/listings/${listingId}/phone`,
+        method: 'GET',
+      }),
+      transformResponse: (response: ApiResponse<RevealPhoneResponse>) =>
+        response.data,
+      extraOptions: { maxRetries: 0 },
     }),
 
     expressInterest: builder.mutation<
@@ -253,6 +271,7 @@ export const {
   useGetFeedQuery,
   useGetTrendingListingsQuery,
   useGetListingQuery,
+  useLazyRevealListingPhoneQuery,
   useExpressInterestMutation,
   useGetMyListingsQuery,
   useCreateListingMutation,
