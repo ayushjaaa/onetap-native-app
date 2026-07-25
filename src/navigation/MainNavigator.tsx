@@ -41,6 +41,7 @@ import { BottomNavBar, type NavTabKey } from '@/components/marketplace';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useNotificationToasts } from '@/hooks/useNotificationToasts';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
+import { AADHAAR_KYC_ENABLED } from '@/config/featureFlags';
 import type {
   MainStackParamList,
   MainTabParamList,
@@ -123,8 +124,12 @@ export const MainNavigator: React.FC = () => {
         name="BecomeSellerIntro"
         component={BecomeSellerIntroScreen}
       />
-      <Stack.Screen name="AadhaarNumber" component={AadhaarNumberScreen} />
-      <Stack.Screen name="AadhaarOtp" component={AadhaarOtpScreen} />
+      {AADHAAR_KYC_ENABLED ? (
+        <>
+          <Stack.Screen name="AadhaarNumber" component={AadhaarNumberScreen} />
+          <Stack.Screen name="AadhaarOtp" component={AadhaarOtpScreen} />
+        </>
+      ) : null}
       <Stack.Screen name="SellerType" component={SellerTypeScreen} />
       <Stack.Screen
         name="IndividualOnboarding"

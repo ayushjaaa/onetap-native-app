@@ -53,6 +53,9 @@ yarn-error.log
 **/fastlane/screenshots
 **/fastlane/test_output
 
+# Sentry — org/project slugs, kept local (auth token comes from SENTRY_AUTH_TOKEN env var, never a file)
+android/sentry.properties
+
 # Bundle artifact
 *.jsbundle
 

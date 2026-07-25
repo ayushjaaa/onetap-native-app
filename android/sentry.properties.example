@@ -1,0 +1,6 @@
+defaults.url=https://sentry.io/
+defaults.org=your-org-slug
+defaults.project=your-project-slug
+# Do NOT put auth.token here — set SENTRY_AUTH_TOKEN as an environment
+# variable instead (sentry-cli reads it automatically). Copy this file to
+# sentry.properties (gitignored) and fill in org/project.

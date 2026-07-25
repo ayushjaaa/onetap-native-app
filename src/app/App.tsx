@@ -19,7 +19,7 @@ initSentry();
 
 // TEMP — Sentry wiring smoke test, remove after verifying dashboard receives events.
 const SentryTestButton: React.FC = () => {
-  if (env.ENV !== 'staging') return null;
+  if (env.isProd) return null;
   return (
     <Pressable
       onPress={() => {

@@ -1,6 +1,8 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "io.sentry.android.gradle"
+apply from: "../../node_modules/@sentry/react-native/sentry.gradle"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -117,6 +119,18 @@ android {
             // release-build cleartext block would fail every network call.
             manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
+    }
+}
+
+// Uploads JS source maps + native debug symbols to Sentry on every release
+// build, so crash stack traces show real file/line instead of minified code.
+// Needs android/sentry.properties (org/project) + a SENTRY_AUTH_TOKEN env var
+// (never commit the token) — see android/sentry.properties.example.
+sentry {
+    uploadNativeSymbols = true
+    includeNativeSources = true
+    autoInstallation {
+        enabled = false
     }
 }
 
