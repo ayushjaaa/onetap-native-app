@@ -7,6 +7,18 @@ export interface PickedImage {
   type: string;
 }
 
+// Must match shared/src/storage/uploadMiddleware.ts's ALLOWED_MIME_TYPES on
+// the backend. This is a UX pre-check only (fail fast, accurate error,
+// avoid a wasted upload round-trip for e.g. iPhone HEIC gallery photos or
+// GIFs) — it is NOT the security boundary. The server re-validates actual
+// file bytes regardless, since a client-side check can always be bypassed
+// by calling the API directly.
+export const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
 // react-native-image-picker reports a permanently-denied permission as
 // errorCode: 'permission', distinct from didCancel (user tapped Cancel).
 // Thrown so callers can tell "denied — show a settings prompt" apart from
