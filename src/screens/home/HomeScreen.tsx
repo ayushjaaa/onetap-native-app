@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,15 +8,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import {
-  Search,
-  Plus,
-  Bell,
-  MapPin,
-  SlidersHorizontal,
-} from 'lucide-react-native';
+import { Search, Plus, MapPin, SlidersHorizontal } from 'lucide-react-native';
 import type { MainStackParamList } from '@/types/navigation.types';
 import {
   BecomeSellerBanner,
@@ -27,6 +21,7 @@ import {
   TrendingHeader,
 } from '@/components/marketplace';
 import { Shimmer, ShimmerCard } from '@/components/common/Shimmer';
+import { NotificationBellButton } from '@/components/common/NotificationBellButton';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
@@ -37,7 +32,6 @@ import {
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { useGetTopCategoriesQuery } from '@/api/categoriesApi';
 import { useGetTrendingListingsQuery } from '@/api/productsApi';
-import { useGetUnreadCountQuery } from '@/api/notificationApi';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import type { CategoryNode, Listing } from '@/types';
 import { formatRelativeShort } from '@/data/listingsStub';
@@ -88,7 +82,6 @@ const resolveSellerBannerState = (
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
-  const isFocused = useIsFocused();
   const dispatch = useAppDispatch();
   const user = useAppSelector(state => state.auth.user);
   const location = useEffectiveLocation();
@@ -103,12 +96,6 @@ export const HomeScreen: React.FC = () => {
   };
 
   const sellerBannerState = resolveSellerBannerState(user);
-
-  // No independent pollingInterval here — shares the same cache entry the
-  // global notification-toast watcher (mounted in MainNavigator) already polls.
-  const { data: unreadCountData } = useGetUnreadCountQuery();
-  const unreadCount = unreadCountData?.count ?? 0;
-  const unreadBadgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const {
     data: topCategories = EMPTY_CATEGORIES,
@@ -126,6 +113,7 @@ export const HomeScreen: React.FC = () => {
     data: trendingData,
     isLoading: isLoadingTrending,
     error: trendingError,
+    refetch: refetchTrending,
   } = useGetTrendingListingsQuery(
     hasLocation
       ? {
@@ -134,12 +122,19 @@ export const HomeScreen: React.FC = () => {
           radius: location.radiusKm,
         }
       : skipToken,
-    // Home stays mounted in the background (bottom-tab navigator), so it never
-    // remounts/refetches on its own when navigating back from a listing whose
-    // price/etc. changed elsewhere (e.g. an admin approving a seller's edit
-    // request from a separate app). Poll only while this tab is actually
-    // visible so the list can't go stale indefinitely while sitting idle.
-    { pollingInterval: isFocused ? 20000 : 0 },
+  );
+
+  // Home stays mounted in the background (bottom-tab navigator), so it never
+  // remounts/refetches on its own when navigating back from a listing whose
+  // price/etc. changed elsewhere (e.g. an admin approving a seller's edit
+  // request from a separate app). Refetch on focus instead of continuous
+  // polling — trending data doesn't change fast enough to justify a call
+  // every 20s regardless of whether the user ever left this tab; a fresh
+  // pull exactly when they return here is enough.
+  useFocusEffect(
+    useCallback(() => {
+      if (hasLocation) refetchTrending();
+    }, [hasLocation, refetchTrending]),
   );
 
   if (__DEV__) {
@@ -240,20 +235,9 @@ export const HomeScreen: React.FC = () => {
               color={colors.textPrimary}
             />
           </Pressable>
-          <Pressable
-            style={styles.bellBtn}
-            hitSlop={spacing.sm}
+          <NotificationBellButton
             onPress={() => navigation.navigate('Notifications')}
-            accessibilityRole="button"
-            accessibilityLabel="Open notifications"
-          >
-            <Bell size={layout.iconSize.md} color={colors.textPrimary} />
-            {unreadCount > 0 ? (
-              <View style={styles.bellBadge}>
-                <Text style={styles.bellBadgeText}>{unreadBadgeLabel}</Text>
-              </View>
-            ) : null}
-          </Pressable>
+          />
         </View>
 
         {/* Welcome */}
@@ -430,6 +414,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '700',
   },
+  // Also used by NotificationBellButton (its own copy) — same circular
+  // icon-button shape shared by both header buttons.
   bellBtn: {
     width: layout.closeButton,
     height: layout.closeButton,
@@ -437,27 +423,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  bellBadge: {
-    position: 'absolute',
-    top: -spacing.xs,
-    right: -spacing.xs,
-    minWidth: spacing.lg,
-    height: spacing.lg,
-    borderRadius: spacing.lg / 2,
-    paddingHorizontal: spacing.xs / 2,
-    backgroundColor: colors.error,
-    borderWidth: 1.5,
-    borderColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bellBadgeText: {
-    ...typography.caption,
-    fontSize: fontSize.xs,
-    lineHeight: fontSize.xs,
-    color: colors.white,
-    fontWeight: '700',
   },
   welcome: {
     marginTop: spacing.xl,

@@ -286,9 +286,13 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   // backend's own per-buyer-per-listing dedupe) then dials immediately.
   const handleCallSeller = async () => {
     try {
-      const result = await triggerRevealPhone({
-        listingId: listing._id,
-      }).unwrap();
+      // `true` here = preferCacheValue — reuse the cached phone for this
+      // listing if we already fetched it this session, instead of always
+      // hitting the network again on every tap.
+      const result = await triggerRevealPhone(
+        { listingId: listing._id },
+        true,
+      ).unwrap();
       dialPhone(result.phone);
     } catch (err) {
       const mapped = mapApiError(err as never);
@@ -336,9 +340,10 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         setBuyConfirmOpen(false);
         return;
       }
+      const mapped = mapApiError(err as never);
       toast.error({
         title: "Couldn't send interest",
-        message: 'Network issue — please try again.',
+        message: mapped.message,
       });
     }
   };
