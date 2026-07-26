@@ -35,6 +35,13 @@ const PICKER_OPTIONS = {
   quality: 0.8 as const,
   maxWidth: 1600,
   maxHeight: 1600,
+  // iOS only, no-op elsewhere: PHPickerViewController's 'compatible' mode
+  // exports the asset in a widely-supported format instead of its original
+  // one — in practice this converts HEIC (the default iPhone photo format)
+  // to JPEG *inside the picker*, so a normal HEIC gallery photo just works
+  // instead of failing the ALLOWED_IMAGE_TYPES check below. 'automatic'
+  // (the library default) would often hand back the original HEIC as-is.
+  assetRepresentationMode: 'compatible' as const,
 };
 
 // react-native-image-picker prompts the native camera/gallery permission dialogs
