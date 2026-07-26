@@ -55,6 +55,12 @@ export async function pickImagesFromLibrary(
   const result = await launchImageLibrary({
     ...PICKER_OPTIONS,
     selectionLimit,
+    // Android only (react-native-image-picker has no iOS equivalent —
+    // PHPickerViewController doesn't support format-level filtering, only
+    // mediaType). Narrows the native gallery picker itself to these types
+    // on Android; the post-selection check in useImageUpload.ts is what
+    // actually covers iOS.
+    restrictMimeTypes: Array.from(ALLOWED_IMAGE_TYPES),
   });
   if (result.errorCode === 'permission') throw new ImagePickerPermissionError();
   if (result.didCancel || !result.assets?.length) return [];
