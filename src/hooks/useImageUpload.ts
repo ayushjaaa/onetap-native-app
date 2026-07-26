@@ -3,6 +3,7 @@ import {
   pickImagesFromLibrary,
   promptImageSource,
   ImagePickerPermissionError,
+  ALLOWED_IMAGE_TYPES,
   type PickedImage,
 } from '@/services/imagePicker';
 import {
@@ -10,9 +11,15 @@ import {
   useUploadListingImageMutation,
 } from '@/api/uploadApi';
 import { useToast } from '@/hooks/useToast';
+import { mapApiError } from '@/utils/errorMapper';
 import { env } from '@/config/env';
+import type { FetchBaseQueryError } from '@reduxjs/toolkit/query';
+import type { SerializedError } from '@reduxjs/toolkit';
 
 export type UploadTarget = 'avatar' | 'listing';
+
+const UNSUPPORTED_FORMAT_MESSAGE =
+  'Only JPEG, PNG, or WebP photos are supported.';
 
 // A canned, already-"uploaded" server-relative path — same shape
 // uploadAvatar/uploadListing would normally return. There's no real file
@@ -33,17 +40,22 @@ export function useImageUpload(target: UploadTarget) {
   const isUploading =
     target === 'avatar' ? avatarState.isLoading : listingState.isLoading;
 
-  const uploadOne = async (image: PickedImage): Promise<string | null> => {
+  const uploadOne = async (
+    image: PickedImage,
+  ): Promise<{ url: string } | { error: string }> => {
     try {
       if (target === 'avatar') {
         const result = await uploadAvatar(image).unwrap();
-        return result.avatarUrl;
+        return { url: result.avatarUrl };
       }
       const result = await uploadListing(image).unwrap();
-      return result.url;
+      return { url: result.url };
     } catch (err) {
       console.warn(`[useImageUpload] upload failed for ${image.name}:`, err);
-      return null;
+      return {
+        error: mapApiError(err as FetchBaseQueryError | SerializedError)
+          .message,
+      };
     }
   };
 
@@ -83,28 +95,46 @@ export function useImageUpload(target: UploadTarget) {
     }
     if (images.length === 0) return [];
 
+    // Client-side pre-check only (fail fast, no wasted upload for e.g.
+    // iPhone HEIC gallery photos or GIFs) — NOT the security boundary, the
+    // server re-validates actual file bytes regardless (see
+    // shared/src/storage/uploadMiddleware.ts on the backend).
+    const allowedImages = images.filter(img =>
+      ALLOWED_IMAGE_TYPES.has(img.type),
+    );
+    const errors: string[] = new Array(
+      images.length - allowedImages.length,
+    ).fill(UNSUPPORTED_FORMAT_MESSAGE);
+
     // Uploaded one at a time, not via Promise.all — firing every multipart
     // POST concurrently made them contend for bandwidth against the shared
     // 15s request timeout (baseApi.ts), so a slow one could time out
     // client-side even though the file had already finished writing on the
     // server, silently dropping it from the returned urls below.
-    const uploaded: (string | null)[] = [];
-    for (const image of images) {
-      uploaded.push(await uploadOne(image));
+    const urls: string[] = [];
+    for (const image of allowedImages) {
+      const outcome = await uploadOne(image);
+      if ('url' in outcome) urls.push(outcome.url);
+      else errors.push(outcome.error);
     }
-    const urls = uploaded.filter((url): url is string => url != null);
-    const failedCount = images.length - urls.length;
-    if (failedCount > 0) {
+
+    if (errors.length > 0) {
       // Surface exactly how many were dropped — a single generic toast here
       // previously made a real per-image failure (e.g. one image exceeding a
       // size limit) indistinguishable from "nothing happened", since the
       // photo grid just silently renders one fewer tile than selected.
+      // When every failure shares the same reason (e.g. all HEIC), show
+      // that specific message instead of the generic fallback.
+      const uniqueMessages = new Set(errors);
       toast.error({
         title:
-          failedCount === images.length
+          errors.length === images.length
             ? "Couldn't upload photo"
-            : `${failedCount} of ${images.length} photos couldn't upload`,
-        message: 'Network issue or file too large — please try again.',
+            : `${errors.length} of ${images.length} photos couldn't upload`,
+        message:
+          uniqueMessages.size === 1
+            ? errors[0]
+            : 'Network issue or file too large — please try again.',
       });
     }
     return urls;

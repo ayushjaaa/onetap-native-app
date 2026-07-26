@@ -7,6 +7,18 @@ export interface PickedImage {
   type: string;
 }
 
+// Must match shared/src/storage/uploadMiddleware.ts's ALLOWED_MIME_TYPES on
+// the backend. This is a UX pre-check only (fail fast, accurate error,
+// avoid a wasted upload round-trip for e.g. iPhone HEIC gallery photos or
+// GIFs) — it is NOT the security boundary. The server re-validates actual
+// file bytes regardless, since a client-side check can always be bypassed
+// by calling the API directly.
+export const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
 // react-native-image-picker reports a permanently-denied permission as
 // errorCode: 'permission', distinct from didCancel (user tapped Cancel).
 // Thrown so callers can tell "denied — show a settings prompt" apart from
@@ -23,6 +35,13 @@ const PICKER_OPTIONS = {
   quality: 0.8 as const,
   maxWidth: 1600,
   maxHeight: 1600,
+  // iOS only, no-op elsewhere: PHPickerViewController's 'compatible' mode
+  // exports the asset in a widely-supported format instead of its original
+  // one — in practice this converts HEIC (the default iPhone photo format)
+  // to JPEG *inside the picker*, so a normal HEIC gallery photo just works
+  // instead of failing the ALLOWED_IMAGE_TYPES check below. 'automatic'
+  // (the library default) would often hand back the original HEIC as-is.
+  assetRepresentationMode: 'compatible' as const,
 };
 
 // react-native-image-picker prompts the native camera/gallery permission dialogs
@@ -43,6 +62,12 @@ export async function pickImagesFromLibrary(
   const result = await launchImageLibrary({
     ...PICKER_OPTIONS,
     selectionLimit,
+    // Android only (react-native-image-picker has no iOS equivalent —
+    // PHPickerViewController doesn't support format-level filtering, only
+    // mediaType). Narrows the native gallery picker itself to these types
+    // on Android; the post-selection check in useImageUpload.ts is what
+    // actually covers iOS.
+    restrictMimeTypes: Array.from(ALLOWED_IMAGE_TYPES),
   });
   if (result.errorCode === 'permission') throw new ImagePickerPermissionError();
   if (result.didCancel || !result.assets?.length) return [];

@@ -42,7 +42,6 @@ export interface Listing {
 export interface ListingSeller {
   id: string;
   name: string;
-  phone?: string; // only present if the seller's phone is verified
   isVerified: boolean;
   memberSince?: string;
   location?: GeoPoint;
@@ -50,6 +49,12 @@ export interface ListingSeller {
 
 export interface GetListingResponseData {
   listing: Listing;
+}
+
+// GET /listings/:id/phone — separate, authenticated, rate-limited reveal action.
+// Phone is never embedded in Listing/ListingSeller anymore.
+export interface RevealPhoneResponse {
+  phone: string;
 }
 
 export type InterestStatus = 'pending' | 'completed' | 'rejected';
