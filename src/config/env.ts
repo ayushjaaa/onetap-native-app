@@ -10,7 +10,7 @@ const devApiHost = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 const defaultDevApiUrl = `http://${devApiHost}:3000/api/v1`;
 
 export const env = {
-  API_URL: Config.API_URL ?? defaultDevApiUrl,
+  API_URL: Config.API_URL || defaultDevApiUrl,
   USE_MOCK_OTP: Config.USE_MOCK_OTP === 'true',
   ENV: (Config.ENV ?? 'development') as Environment,
   isDev: (Config.ENV ?? 'development') === 'development',
