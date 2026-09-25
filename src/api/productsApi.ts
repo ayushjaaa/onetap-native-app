@@ -9,12 +9,14 @@ import type {
   GetFeedParams,
   GetFeedResponseData,
   GetListingResponseData,
+  GetMyListingEditRequestsResponseData,
   GetMyListingsResponseData,
   GetTrendingParams,
   GetTrendingResponseData,
   GetTrendingSearchesParams,
   GetTrendingSearchesResponseData,
   Listing,
+  ListingEditRequest,
   RevealPhoneResponse,
   SearchAutocompleteResponseData,
   SearchListingsParams,
@@ -178,7 +180,7 @@ export const productsApi = baseApi.injectEndpoints({
     }),
 
     createListingEditRequest: builder.mutation<
-      { editRequest: unknown },
+      { editRequest: ListingEditRequest },
       { id: string; price: number; description: string }
     >({
       query: ({ id, price, description }) => ({
@@ -186,12 +188,32 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: { price, description },
       }),
-      transformResponse: (response: ApiResponse<{ editRequest: unknown }>) =>
-        response.data,
+      transformResponse: (
+        response: ApiResponse<{ editRequest: ListingEditRequest }>,
+      ) => response.data,
       extraOptions: { maxRetries: 0 },
       invalidatesTags: (_result, _error, { id }) => [
         { type: 'Listing' as const, id },
+        { type: 'EditRequest' as const, id: 'MINE' },
       ],
+    }),
+
+    // No listingId filter param on the backend — every edit request the
+    // seller has ever made, across all their listings, newest first. Callers
+    // that need "the latest one for listing X" filter client-side (see
+    // getLatestEditRequestForListing in utils/listingEditRequests.ts).
+    getMyListingEditRequests: builder.query<
+      GetMyListingEditRequestsResponseData,
+      void
+    >({
+      query: () => ({
+        url: '/marketplace/listings/edit-requests/mine',
+        method: 'GET',
+      }),
+      transformResponse: (
+        response: ApiResponse<GetMyListingEditRequestsResponseData>,
+      ) => response.data,
+      providesTags: [{ type: 'EditRequest' as const, id: 'MINE' }],
     }),
 
     createShareLink: builder.mutation<CreateShareLinkResponseData, string>({
@@ -277,6 +299,7 @@ export const {
   useCreateListingMutation,
   useDeleteListingMutation,
   useCreateListingEditRequestMutation,
+  useGetMyListingEditRequestsQuery,
   useCreateShareLinkMutation,
   useSearchListingsQuery,
   useAutocompleteSearchQuery,

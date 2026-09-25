@@ -27,13 +27,15 @@ import { formatINR } from '@/data/packagesCatalog';
 import {
   useGetMyListingsQuery,
   useDeleteListingMutation,
+  useGetMyListingEditRequestsQuery,
 } from '@/api/productsApi';
 import { mapApiError } from '@/utils/errorMapper';
 import { useToast } from '@/hooks/useToast';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { buildMediaUrl } from '@/utils/media';
-import type { Listing } from '@/types';
+import { getLatestEditRequestForListing } from '@/utils/listingEditRequests';
+import type { Listing, ListingEditRequest } from '@/types';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
@@ -64,11 +66,18 @@ interface MyListing {
   soldToName?: string;
   soldAtIso?: string;
   transactionId?: string;
+  // Live — a pending/rejected price-or-description change request, if any
+  // (Approved isn't carried through: the listing's own fields already
+  // reflect it, so there's nothing left to show here).
+  editRequest?: ListingEditRequest;
 }
 
 const isVisibleInMyAds = (l: Listing): boolean => l.status !== 'Deleted';
 
-const toMyListing = (l: Listing): MyListing => {
+const toMyListing = (
+  l: Listing,
+  editRequest: ListingEditRequest | undefined,
+): MyListing => {
   const statusMap: Record<string, ListingStatus> = {
     Draft: 'pending',
     Pending: 'pending',
@@ -87,6 +96,7 @@ const toMyListing = (l: Listing): MyListing => {
     photoUrl: l.photos?.[0],
     rejectionReason: l.rejectionReason,
     soldAtIso: l.soldAt,
+    editRequest: editRequest?.status !== 'Approved' ? editRequest : undefined,
   };
 };
 
@@ -114,24 +124,41 @@ export const MyAdsScreen: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<ListingStatus>('live');
   const [rejectionSheet, setRejectionSheet] = useState<MyListing | null>(null);
+  const [editRequestRejectionSheet, setEditRequestRejectionSheet] =
+    useState<MyListing | null>(null);
 
   const { data, isLoading, refetch } = useGetMyListingsQuery();
+  const { data: editRequestsData, refetch: refetchEditRequests } =
+    useGetMyListingEditRequestsQuery();
   const [deleteListing] = useDeleteListingMutation();
 
   // Admin approval/rejection happens out-of-band (admin dashboard, not this
-  // app), so the RTK Query cache has no way to know a listing's status
-  // changed server-side. Refetch every time this screen regains focus so a
-  // seller returning here sees the current status instead of a stale cache.
+  // app), so the RTK Query cache has no way to know a listing's (or an edit
+  // request's) status changed server-side. Refetch every time this screen
+  // regains focus so a seller returning here sees the current status instead
+  // of a stale cache.
   useFocusEffect(
     useCallback(() => {
       void refetch();
-    }, [refetch]),
+      void refetchEditRequests();
+    }, [refetch, refetchEditRequests]),
   );
 
   const rawListings = data?.listings ?? EMPTY_LISTINGS;
   const listings = useMemo(
-    () => rawListings.filter(isVisibleInMyAds).map(toMyListing),
-    [rawListings],
+    () =>
+      rawListings
+        .filter(isVisibleInMyAds)
+        .map(l =>
+          toMyListing(
+            l,
+            getLatestEditRequestForListing(
+              editRequestsData?.editRequests,
+              l._id,
+            ),
+          ),
+        ),
+    [rawListings, editRequestsData],
   );
   const slotsAvailable = data?.summary?.slotsRemaining ?? 0;
 
@@ -267,6 +294,9 @@ export const MyAdsScreen: React.FC = () => {
               onOpen={() => handleOpenListing(listing)}
               onRemove={() => handleRemove(listing)}
               onSeeReason={() => setRejectionSheet(listing)}
+              onSeeEditRequestReason={() =>
+                setEditRequestRejectionSheet(listing)
+              }
               onViewTransaction={() => handleViewTransaction(listing)}
             />
           ))
@@ -281,6 +311,11 @@ export const MyAdsScreen: React.FC = () => {
           handlePostNew();
         }}
       />
+
+      <EditRequestRejectionSheet
+        listing={editRequestRejectionSheet}
+        onClose={() => setEditRequestRejectionSheet(null)}
+      />
     </SafeAreaView>
   );
 };
@@ -292,6 +327,7 @@ interface ListingCardProps {
   onOpen: () => void;
   onRemove: () => void;
   onSeeReason: () => void;
+  onSeeEditRequestReason: () => void;
   onViewTransaction: () => void;
 }
 
@@ -300,6 +336,7 @@ const ListingCard: React.FC<ListingCardProps> = ({
   onOpen,
   onRemove,
   onSeeReason,
+  onSeeEditRequestReason,
   onViewTransaction,
 }) => {
   const isDim = listing.status === 'rejected' || listing.status === 'sold';
@@ -348,19 +385,40 @@ const ListingCard: React.FC<ListingCardProps> = ({
         ) : null}
 
         {listing.status === 'live' ? (
-          <View style={styles.liveFooter}>
-            {/* View/interest counts aren't tracked by the backend today —
-                see integration docs; showing a fake 0 would be misleading,
-                so this row is intentionally just the Remove action. */}
-            <View style={styles.statsRow} />
-            <Pressable
-              onPress={onRemove}
-              hitSlop={spacing.sm}
-              style={styles.removeBtn}
-            >
-              <Text style={styles.removeBtnText}>Remove</Text>
-            </Pressable>
-          </View>
+          <>
+            <View style={styles.liveFooter}>
+              {/* View/interest counts aren't tracked by the backend today —
+                  see integration docs; showing a fake 0 would be misleading,
+                  so this row is intentionally just the Remove action. */}
+              <View style={styles.statsRow} />
+              <Pressable
+                onPress={onRemove}
+                hitSlop={spacing.sm}
+                style={styles.removeBtn}
+              >
+                <Text style={styles.removeBtnText}>Remove</Text>
+              </Pressable>
+            </View>
+            {listing.editRequest?.status === 'Pending' ? (
+              <View style={[styles.footerRow, styles.editRequestRow]}>
+                <Clock size={layout.iconSize.sm} color={colors.warning} />
+                <Text style={styles.footerText}>
+                  Edit request pending review
+                </Text>
+              </View>
+            ) : listing.editRequest?.status === 'Rejected' ? (
+              <Pressable
+                onPress={onSeeEditRequestReason}
+                style={[styles.footerRow, styles.editRequestRow]}
+              >
+                <XCircle size={layout.iconSize.sm} color={colors.error} />
+                <Text style={[styles.footerText, styles.footerTextLink]}>
+                  Edit request rejected — see reason
+                </Text>
+                <ChevronRight size={layout.iconSize.sm} color={colors.error} />
+              </Pressable>
+            ) : null}
+          </>
         ) : null}
 
         {listing.status === 'rejected' && listing.isExpired ? (
@@ -509,6 +567,57 @@ const RejectionReasonSheet: React.FC<RejectionReasonSheetProps> = ({
             >
               <Text style={styles.sheetPrimaryText}>Post a new listing</Text>
             </Pressable>
+          </>
+        ) : null}
+      </View>
+    </Modal>
+  );
+};
+
+interface EditRequestRejectionSheetProps {
+  listing: MyListing | null;
+  onClose: () => void;
+}
+
+const EditRequestRejectionSheet: React.FC<EditRequestRejectionSheetProps> = ({
+  listing,
+  onClose,
+}) => {
+  const visible = !!listing;
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>Edit request rejected</Text>
+          <Pressable
+            onPress={onClose}
+            hitSlop={spacing.sm}
+            style={styles.sheetCloseBtn}
+          >
+            <X size={layout.iconSize.md} color={colors.textPrimary} />
+          </Pressable>
+        </View>
+        {listing ? (
+          <>
+            <Text style={styles.sheetListingTitle}>{listing.title}</Text>
+            <View style={styles.sheetReasonBox}>
+              <XCircle size={layout.iconSize.base} color={colors.error} />
+              <Text style={styles.sheetReasonText}>
+                {listing.editRequest?.rejectionReason ??
+                  'Admin did not provide a reason.'}
+              </Text>
+            </View>
+            <Text style={styles.sheetHint}>
+              You can submit a new edit request with different details from the
+              listing's detail screen.
+            </Text>
           </>
         ) : null}
       </View>
@@ -672,6 +781,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  editRequestRow: {
+    marginTop: spacing.sm,
   },
   statsRow: {
     flexDirection: 'row',

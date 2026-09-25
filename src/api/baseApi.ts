@@ -68,6 +68,7 @@ export const baseApi = createApi({
     'Listing',
     'Interest',
     'Notification',
+    'EditRequest',
   ],
   endpoints: () => ({}),
 });

@@ -154,6 +154,31 @@ export interface DeleteListingResponseData {
   status: ListingStatus;
 }
 
+export type ListingEditRequestStatus = 'Pending' | 'Approved' | 'Rejected';
+
+// POST /listings/:id/edit-request only supports price + description — the
+// backend has no field-level granularity beyond these two (title, category,
+// condition, photos, location are not editable via this flow at all).
+export interface ListingEditRequest {
+  _id: string;
+  listingId: string;
+  sellerId: string;
+  proposedPrice: number; // paise
+  proposedDescription: string;
+  originalPrice: number; // paise, snapshot at request time
+  originalDescription: string;
+  status: ListingEditRequestStatus;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GetMyListingEditRequestsResponseData {
+  editRequests: ListingEditRequest[];
+}
+
 export interface SearchListingsParams {
   q?: string;
   limit?: number;
