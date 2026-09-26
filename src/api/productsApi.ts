@@ -192,10 +192,11 @@ export const productsApi = baseApi.injectEndpoints({
         response: ApiResponse<{ editRequest: ListingEditRequest }>,
       ) => response.data,
       extraOptions: { maxRetries: 0 },
-      invalidatesTags: (_result, _error, { id }) => [
-        { type: 'Listing' as const, id },
-        { type: 'EditRequest' as const, id: 'MINE' },
-      ],
+      // Deliberately does NOT invalidate the Listing tag — per the backend's
+      // own contract, "nothing on the listing itself changes here — it only
+      // takes effect once an admin approves it," so refetching the listing
+      // here would just be a wasted round-trip for zero actual change.
+      invalidatesTags: [{ type: 'EditRequest' as const, id: 'MINE' }],
     }),
 
     // No listingId filter param on the backend — every edit request the
