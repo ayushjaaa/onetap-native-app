@@ -52,6 +52,7 @@ import {
   useGetListingQuery,
   useDeleteListingMutation,
   useCreateListingEditRequestMutation,
+  useGetMyListingEditRequestsQuery,
   useLazyRevealListingPhoneQuery,
 } from '@/api/productsApi';
 import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
@@ -67,9 +68,15 @@ import {
 import { getDistanceKm } from '@/utils/geo';
 import { buildMediaUrl } from '@/utils/media';
 import { mapApiError } from '@/utils/errorMapper';
+import { getLatestEditRequestForListing } from '@/utils/listingEditRequests';
 import { colors, fontSize, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
-import type { Interest, Listing, ListingStatus } from '@/types';
+import type {
+  Interest,
+  Listing,
+  ListingEditRequest,
+  ListingStatus,
+} from '@/types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'ListingDetail'>;
 type Props = NativeStackScreenProps<MainStackParamList, 'ListingDetail'>;
@@ -162,6 +169,8 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const [localInterestOverride, setLocalInterestOverride] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [rejectionOpen, setRejectionOpen] = useState(false);
+  const [editRequestRejectionOpen, setEditRequestRejectionOpen] =
+    useState(false);
   const [editRequestOpen, setEditRequestOpen] = useState(false);
   const [editPrice, setEditPrice] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -186,6 +195,21 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   const { data: receivedInterestsData } = useGetReceivedInterestsQuery(
     isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
   );
+
+  // No listingId filter on the backend — fetch the seller's full edit-request
+  // history and pick out the latest one for this listing (see
+  // getLatestEditRequestForListing). This flow only ever applies to Live
+  // listings, so skip the fetch entirely otherwise (same gating as the
+  // receivedInterestsData query just above).
+  const { data: myEditRequestsData } = useGetMyListingEditRequestsQuery(
+    isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
+  );
+  const latestEditRequest = listing
+    ? getLatestEditRequestForListing(
+        myEditRequestsData?.editRequests,
+        listing._id,
+      )
+    : undefined;
   if (__DEV__) {
     console.log(
       '[ListingDetailScreen] GET /marketplace/interests/received raw response:',
@@ -417,6 +441,13 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       );
       return;
     }
+    if (editDescription.trim().length > 2000) {
+      Alert.alert(
+        'Description too long',
+        'Description must be at most 2000 characters.',
+      );
+      return;
+    }
     try {
       await createListingEditRequest({
         id: listing._id,
@@ -584,6 +615,19 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
             soldToName={soldToName}
             soldAtIso={listing.soldAt}
             onSeeReason={() => setRejectionOpen(true)}
+          />
+        ) : null}
+
+        {/* Edit-request status (seller mode, Live listings only — that's the
+            only status this flow supports). Approved needs no banner: the
+            listing's own price/description already reflect the change. */}
+        {isSellerMode &&
+        listing.status === 'Live' &&
+        latestEditRequest &&
+        latestEditRequest.status !== 'Approved' ? (
+          <EditRequestStatusBanner
+            editRequest={latestEditRequest}
+            onSeeReason={() => setEditRequestRejectionOpen(true)}
           />
         ) : null}
 
@@ -776,7 +820,8 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                 </Text>
               </Pressable>
             ) : null}
-            {listing.status === 'Live' ? (
+            {listing.status === 'Live' &&
+            latestEditRequest?.status !== 'Pending' ? (
               <Pressable
                 onPress={openEditRequest}
                 style={({ pressed }) => [
@@ -837,6 +882,44 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         </View>
       </Modal>
 
+      {/* Edit-request rejection reason sheet (seller mode) — separate from the
+          listing-rejection sheet above; this one is for a rejected price/
+          description change request, not the listing itself. */}
+      <Modal
+        visible={editRequestRejectionOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditRequestRejectionOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setEditRequestRejectionOpen(false)}
+        />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Edit request rejected</Text>
+            <Pressable
+              onPress={() => setEditRequestRejectionOpen(false)}
+              hitSlop={spacing.sm}
+              style={styles.sheetClose}
+            >
+              <X size={layout.iconSize.md} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+          <View style={styles.sheetReasonBox}>
+            <XCircle size={layout.iconSize.base} color={colors.error} />
+            <Text style={styles.sheetReasonText}>
+              {latestEditRequest?.rejectionReason ??
+                'Admin did not provide a reason.'}
+            </Text>
+          </View>
+          <Text style={styles.sheetHint}>
+            You can submit a new edit request with different details.
+          </Text>
+        </View>
+      </Modal>
+
       {/* Request-edit sheet (seller mode) — proposes new price/description,
           goes to an admin approval queue; nothing changes on the listing
           until approved (see listingEditRequest.controller.ts). */}
@@ -889,6 +972,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               value={editDescription}
               onChangeText={setEditDescription}
               multiline
+              maxLength={2000}
               placeholder="Description"
               placeholderTextColor={colors.textMuted}
             />
@@ -985,6 +1069,40 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
           {soldToName ? ` to ${soldToName}` : ''}
         </Text>
       </View>
+    );
+  }
+  return null;
+};
+
+interface EditRequestStatusBannerProps {
+  editRequest: ListingEditRequest;
+  onSeeReason: () => void;
+}
+
+const EditRequestStatusBanner: React.FC<EditRequestStatusBannerProps> = ({
+  editRequest,
+  onSeeReason,
+}) => {
+  if (editRequest.status === 'Pending') {
+    return (
+      <View style={[styles.statusBanner, styles.statusPending]}>
+        <Clock size={layout.iconSize.sm} color={colors.warning} />
+        <Text style={styles.statusText}>Edit request pending review.</Text>
+      </View>
+    );
+  }
+  if (editRequest.status === 'Rejected') {
+    return (
+      <Pressable
+        onPress={onSeeReason}
+        style={[styles.statusBanner, styles.statusRejected]}
+      >
+        <XCircle size={layout.iconSize.sm} color={colors.error} />
+        <Text style={[styles.statusText, styles.statusTextLink]}>
+          Edit request rejected — see reason
+        </Text>
+        <ChevronRight size={layout.iconSize.sm} color={colors.error} />
+      </Pressable>
     );
   }
   return null;

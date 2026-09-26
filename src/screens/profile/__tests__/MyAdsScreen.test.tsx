@@ -31,6 +31,27 @@ function mockFetchOnce(body: unknown) {
   }) as unknown as typeof fetch;
 }
 
+// Unlike mockFetchOnce (one canned body for every URL), this dispatches by
+// URL substring — needed once more than one endpoint fires, e.g. listings
+// alongside getMyListingEditRequests.
+function mockFetchByUrl(handlers: Record<string, unknown>) {
+  globalThis.fetch = jest.fn().mockImplementation((input: Request | string) => {
+    const url = typeof input === 'string' ? input : input.url;
+    const match = Object.keys(handlers).find(pattern => url.includes(pattern));
+    const body = match ? handlers[match] : { success: true, data: {} };
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+      clone() {
+        return this;
+      },
+    });
+  }) as unknown as typeof fetch;
+}
+
 const makeListing = (overrides: Record<string, unknown> = {}) => ({
   _id: 'l1',
   sellerId: 's1',
@@ -171,6 +192,111 @@ describe('MyAdsScreen', () => {
     });
 
     alertSpy.mockRestore();
+  });
+
+  it('shows a pending edit-request footer row on a Live listing card', async () => {
+    mockFetchByUrl({
+      '/edit-requests/mine': {
+        success: true,
+        data: {
+          editRequests: [
+            {
+              _id: 'er1',
+              listingId: 'l1',
+              sellerId: 's1',
+              proposedPrice: 90000,
+              proposedDescription: 'Updated description, long enough to pass.',
+              originalPrice: 100000,
+              originalDescription: 'desc',
+              status: 'Pending',
+              createdAt: '2026-09-25T00:00:00.000Z',
+              updatedAt: '2026-09-25T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      '/marketplace/listings/mine': {
+        success: true,
+        message: 'Seller listings retrieved',
+        statusCode: 200,
+        data: {
+          listings: [
+            makeListing({ _id: 'l1', title: 'Live phone', status: 'Live' }),
+          ],
+          summary: {
+            total: 1,
+            active: 1,
+            postSlots: 3,
+            slotsUsed: 1,
+            slotsRemaining: 2,
+            kycStatus: 'pending',
+          },
+        },
+      },
+    });
+
+    const { getByText } = await renderWithProviders(<MyAdsScreen />);
+
+    await waitFor(() => {
+      expect(getByText('Live phone')).toBeTruthy();
+    });
+    expect(getByText('Edit request pending review')).toBeTruthy();
+  });
+
+  it('opens the edit-request rejection reason sheet when tapped', async () => {
+    mockFetchByUrl({
+      '/edit-requests/mine': {
+        success: true,
+        data: {
+          editRequests: [
+            {
+              _id: 'er1',
+              listingId: 'l1',
+              sellerId: 's1',
+              proposedPrice: 90000,
+              proposedDescription: 'Updated description, long enough to pass.',
+              originalPrice: 100000,
+              originalDescription: 'desc',
+              status: 'Rejected',
+              rejectionReason: 'Price drop too steep without justification.',
+              createdAt: '2026-09-25T00:00:00.000Z',
+              updatedAt: '2026-09-25T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      '/marketplace/listings/mine': {
+        success: true,
+        message: 'Seller listings retrieved',
+        statusCode: 200,
+        data: {
+          listings: [
+            makeListing({ _id: 'l1', title: 'Live phone', status: 'Live' }),
+          ],
+          summary: {
+            total: 1,
+            active: 1,
+            postSlots: 3,
+            slotsUsed: 1,
+            slotsRemaining: 2,
+            kycStatus: 'pending',
+          },
+        },
+      },
+    });
+
+    const { getByText } = await renderWithProviders(<MyAdsScreen />);
+
+    await waitFor(() => {
+      expect(getByText('Edit request rejected — see reason')).toBeTruthy();
+    });
+    fireEvent.press(getByText('Edit request rejected — see reason'));
+
+    await waitFor(() => {
+      expect(
+        getByText('Price drop too steep without justification.'),
+      ).toBeTruthy();
+    });
   });
 });
 

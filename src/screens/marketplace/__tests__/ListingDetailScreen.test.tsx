@@ -340,6 +340,87 @@ describe('ListingDetailScreen', () => {
     });
   });
 
+  it('shows a pending edit-request banner and hides the "Request edit" menu item while one is already pending', async () => {
+    const listing = makeListing({ status: 'Live' });
+    mockFetchByUrl({
+      '/edit-requests/mine': {
+        success: true,
+        data: {
+          editRequests: [
+            {
+              _id: 'er1',
+              listingId: 'l1',
+              sellerId: 'user-1',
+              proposedPrice: 450000,
+              proposedDescription: 'Slightly used, comes with case.',
+              originalPrice: 500000,
+              originalDescription: listing.description,
+              status: 'Pending',
+              createdAt: '2026-09-25T00:00:00.000Z',
+              updatedAt: '2026-09-25T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+    });
+
+    const { getByText, queryByText, getByTestId } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByText('Edit request pending review.')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('listing-detail-menu-button'));
+    expect(queryByText('Request edit')).toBeNull();
+  });
+
+  it("shows the edit request's own rejection reason (distinct from the listing's rejection sheet)", async () => {
+    const listing = makeListing({ status: 'Live' });
+    mockFetchByUrl({
+      '/edit-requests/mine': {
+        success: true,
+        data: {
+          editRequests: [
+            {
+              _id: 'er1',
+              listingId: 'l1',
+              sellerId: 'user-1',
+              proposedPrice: 450000,
+              proposedDescription: 'Slightly used, comes with case.',
+              originalPrice: 500000,
+              originalDescription: listing.description,
+              status: 'Rejected',
+              rejectionReason: 'Price change too large without justification.',
+              createdAt: '2026-09-25T00:00:00.000Z',
+              updatedAt: '2026-09-25T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+    });
+
+    const { getByText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    await waitFor(() => {
+      expect(getByText('Edit request rejected — see reason')).toBeTruthy();
+    });
+    fireEvent.press(getByText('Edit request rejected — see reason'));
+
+    await waitFor(() => {
+      expect(
+        getByText('Price change too large without justification.'),
+      ).toBeTruthy();
+    });
+  });
+
   // Share button is intentionally disabled (SHARE_ENABLED = false in
   // ListingDetailScreen.tsx) — no onPress is wired up, so this test's
   // premise doesn't hold. Re-enable once Share2's onPress calls handleShare.
