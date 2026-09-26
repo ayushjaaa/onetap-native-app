@@ -198,9 +198,11 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
 
   // No listingId filter on the backend — fetch the seller's full edit-request
   // history and pick out the latest one for this listing (see
-  // getLatestEditRequestForListing). Only relevant in seller mode.
+  // getLatestEditRequestForListing). This flow only ever applies to Live
+  // listings, so skip the fetch entirely otherwise (same gating as the
+  // receivedInterestsData query just above).
   const { data: myEditRequestsData } = useGetMyListingEditRequestsQuery(
-    isSellerMode ? undefined : skipToken,
+    isSellerMode && listing?.status === 'Live' ? undefined : skipToken,
   );
   const latestEditRequest = listing
     ? getLatestEditRequestForListing(
@@ -436,6 +438,13 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
       Alert.alert(
         'Description too short',
         'Description must be at least 20 characters.',
+      );
+      return;
+    }
+    if (editDescription.trim().length > 2000) {
+      Alert.alert(
+        'Description too long',
+        'Description must be at most 2000 characters.',
       );
       return;
     }
@@ -963,6 +972,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               value={editDescription}
               onChangeText={setEditDescription}
               multiline
+              maxLength={2000}
               placeholder="Description"
               placeholderTextColor={colors.textMuted}
             />
