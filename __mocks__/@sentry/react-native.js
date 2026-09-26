@@ -8,6 +8,11 @@ module.exports = {
   reactNavigationIntegration: jest.fn(() => ({
     registerNavigationContainer: jest.fn(),
   })),
+  // sentry.ts calls this at module load time (not inside initSentry()), so
+  // it must exist here even though nothing else in this file's mocked
+  // surface is exercised by it — its absence used to crash every test that
+  // transitively imports storage.ts, before any test body ever ran.
+  mobileReplayIntegration: jest.fn(() => ({})),
   captureException: jest.fn(),
   setUser: jest.fn(),
 };

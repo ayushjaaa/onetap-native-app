@@ -173,4 +173,98 @@ describe('productsApi', () => {
     expect(calledRequest.method).toBe('DELETE');
     expect(result.data).toEqual({ id: 'l1', status: 'Deleted' });
   });
+
+  it('createListingEditRequest POSTs to /marketplace/listings/:id/edit-request and unwraps { data }', async () => {
+    const editRequest = {
+      _id: 'er1',
+      listingId: 'l1',
+      sellerId: 's1',
+      proposedPrice: 4000000,
+      proposedDescription: 'Updated description, still mint condition',
+      originalPrice: 4200000,
+      originalDescription: 'mint condition, 128GB',
+      status: 'Pending',
+      createdAt: '2026-09-26T00:00:00.000Z',
+      updatedAt: '2026-09-26T00:00:00.000Z',
+    };
+    mockFetchOnce(201, {
+      success: true,
+      message: 'Edit request submitted for review',
+      statusCode: 201,
+      data: { editRequest },
+    });
+
+    const store = createTestStore();
+    const result = await store.dispatch(
+      productsApi.endpoints.createListingEditRequest.initiate({
+        id: 'l1',
+        price: 4000000,
+        description: 'Updated description, still mint condition',
+      }),
+    );
+
+    const calledRequest = (globalThis.fetch as jest.Mock).mock
+      .calls[0][0] as Request;
+    expect(calledRequest.url).toContain(
+      '/marketplace/listings/l1/edit-request',
+    );
+    expect(calledRequest.method).toBe('POST');
+    expect(result.data).toEqual({ editRequest });
+  });
+
+  it('createListingEditRequest surfaces a 409 (already-pending) error without throwing', async () => {
+    mockFetchOnce(409, {
+      message: 'This listing already has a pending edit request',
+    });
+
+    const store = createTestStore();
+    const result = await store.dispatch(
+      productsApi.endpoints.createListingEditRequest.initiate({
+        id: 'l1',
+        price: 4000000,
+        description: 'Updated description, still mint condition',
+      }),
+    );
+
+    expect(result.error).toBeDefined();
+    expect((result.error as { status?: number })?.status).toBe(409);
+  });
+
+  it('getMyListingEditRequests hits GET /marketplace/listings/edit-requests/mine and unwraps { data }', async () => {
+    const payload = {
+      editRequests: [
+        {
+          _id: 'er1',
+          listingId: 'l1',
+          sellerId: 's1',
+          proposedPrice: 4000000,
+          proposedDescription: 'Updated description, still mint condition',
+          originalPrice: 4200000,
+          originalDescription: 'mint condition, 128GB',
+          status: 'Pending',
+          createdAt: '2026-09-26T00:00:00.000Z',
+          updatedAt: '2026-09-26T00:00:00.000Z',
+        },
+      ],
+    };
+    mockFetchOnce(200, {
+      success: true,
+      message: 'Edit requests retrieved',
+      statusCode: 200,
+      data: payload,
+    });
+
+    const store = createTestStore();
+    const result = await store.dispatch(
+      productsApi.endpoints.getMyListingEditRequests.initiate(),
+    );
+
+    const calledRequest = (globalThis.fetch as jest.Mock).mock
+      .calls[0][0] as Request;
+    expect(calledRequest.url).toContain(
+      '/marketplace/listings/edit-requests/mine',
+    );
+    expect(calledRequest.method).toBe('GET');
+    expect(result.data).toEqual(payload);
+  });
 });
