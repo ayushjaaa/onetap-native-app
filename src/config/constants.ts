@@ -1,5 +1,17 @@
 export const APP_NAME = 'OneTap365';
 
+// PLACEHOLDERS — these pages aren't hosted yet. Both stores require a reachable
+// privacy policy before submission; replace with the real URLs once published.
+export const PRIVACY_POLICY_URL = 'https://onetap365.com/privacy';
+export const TERMS_URL = 'https://onetap365.com/terms';
+
+export const SUPPORT_PHONE = '+918951773889';
+export const SUPPORT_PHONE_DISPLAY = '+91 89517 73889';
+
+// Must match ACCOUNT_PURGE_GRACE_DAYS in the backend's auth-service
+// (jobs/accountPurge.worker.ts) — shown to the user in the delete confirmation.
+export const ACCOUNT_DELETION_GRACE_DAYS = 30;
+
 export const OTP_LENGTH = 6;
 export const OTP_TIMER_SECONDS = 120;
 export const MOCK_OTP = '123456';

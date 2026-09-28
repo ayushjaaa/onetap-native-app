@@ -15,12 +15,16 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Camera,
   ChevronRight,
+  FileText,
+  Headphones,
   IndianRupee,
   KeyRound,
   LogOut,
   MapPin,
   Package,
+  ShieldCheck,
   ShoppingBag,
+  Trash2,
   Zap,
   type LucideIcon,
 } from 'lucide-react-native';
@@ -29,15 +33,26 @@ import { useAppSelector } from '@/hooks/useAppSelector';
 import { usePermission } from '@/hooks/usePermission';
 import { useToast } from '@/hooks/useToast';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { useDeleteAccountMutation } from '@/api/authApi';
 import { logout, setUser } from '@/store/authSlice';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
 import { secureStorage } from '@/services/secureStorage';
 import { googleAuth } from '@/services/googleAuth';
+import { externalLinks } from '@/services/externalLinks';
+import {
+  ACCOUNT_DELETION_GRACE_DAYS,
+  SUPPORT_PHONE_DISPLAY,
+} from '@/config/constants';
 import { buildMediaUrl } from '@/utils/media';
+import { mapApiError } from '@/utils/errorMapper';
 import { colors, layout, radius, spacing, typography } from '@/theme';
 import type { MainStackParamList } from '@/types/navigation.types';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
+
+const { version: APP_VERSION } = require('../../../package.json') as {
+  version: string;
+};
 
 // Toggle to re-enable the Account section's "Forgot password" row — see the
 // comment at its render site for why it's off.
@@ -66,6 +81,9 @@ const Row: React.FC<RowProps> = ({
       testID={testID}
       onPress={onPress}
       disabled={!onPress}
+      accessibilityRole="button"
+      accessibilityLabel={value ? `${label}, ${value}` : label}
+      accessibilityState={{ disabled: !onPress }}
       style={({ pressed }) => [
         styles.row,
         pressed && onPress && styles.rowPressed,
@@ -104,23 +122,67 @@ export const ProfileScreen: React.FC = () => {
     }
   };
   const location = useAppSelector(state => state.location);
+  const [deleteAccount, { isLoading: isDeletingAccount }] =
+    useDeleteAccountMutation();
+
+  const clearSession = async () => {
+    // Clear Google session so picker reappears next time (no-op for
+    // manual login users — googleAuth.signOut swallows errors).
+    await googleAuth.signOut();
+    await secureStorage.clearToken();
+    dispatch(logout());
+  };
 
   const handleLogout = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: async () => {
-          // Clear Google session so picker reappears next time (no-op for
-          // manual login users — googleAuth.signOut swallows errors).
-          await googleAuth.signOut();
-          await secureStorage.clearToken();
-          dispatch(logout());
-        },
-      },
+      { text: 'Sign out', style: 'destructive', onPress: clearSession },
     ]);
   };
+
+  const confirmDeleteAccount = async () => {
+    try {
+      await deleteAccount().unwrap();
+    } catch (err) {
+      toast.error({
+        title: "Couldn't delete account",
+        message: mapApiError(err as never).message,
+      });
+      return;
+    }
+    await clearSession();
+    toast.success({
+      title: 'Account deleted',
+      message: `Your data will be permanently erased within ${ACCOUNT_DELETION_GRACE_DAYS} days.`,
+    });
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete your account?',
+      `You'll be signed out and won't be able to sign in again. Your listings are removed now, and your profile and personal data are permanently erased after ${ACCOUNT_DELETION_GRACE_DAYS} days. Unused listing slots are lost.\n\nThis can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: confirmDeleteAccount,
+        },
+      ],
+    );
+  };
+
+  const openExternal = async (open: () => Promise<boolean>, what: string) => {
+    if (!(await open())) {
+      toast.error({ title: `Couldn't open ${what}` });
+    }
+  };
+  const handleCallSupport = () =>
+    openExternal(externalLinks.callSupport, 'the dialer');
+  const handlePrivacyPolicy = () =>
+    openExternal(externalLinks.openPrivacyPolicy, 'the privacy policy');
+  const handleTerms = () =>
+    openExternal(externalLinks.openTerms, 'the terms of service');
 
   const handleForgotPassword = () => {
     navigation.navigate('ForgotPasswordPhone');
@@ -287,7 +349,33 @@ export const ProfileScreen: React.FC = () => {
           />
         </View>
 
-        {/* Sign out */}
+        {/* Help & legal */}
+        <Text style={styles.sectionTitle}>Help & legal</Text>
+        <View style={styles.card}>
+          <Row
+            testID="profile-support-button"
+            Icon={Headphones}
+            label="Call support"
+            value={SUPPORT_PHONE_DISPLAY}
+            onPress={handleCallSupport}
+          />
+          <View style={styles.divider} />
+          <Row
+            testID="profile-privacy-button"
+            Icon={ShieldCheck}
+            label="Privacy Policy"
+            onPress={handlePrivacyPolicy}
+          />
+          <View style={styles.divider} />
+          <Row
+            testID="profile-terms-button"
+            Icon={FileText}
+            label="Terms of Service"
+            onPress={handleTerms}
+          />
+        </View>
+
+        {/* Sign out / delete */}
         <View style={[styles.card, styles.cardSpaced]}>
           <Row
             testID="profile-logout-button"
@@ -296,9 +384,17 @@ export const ProfileScreen: React.FC = () => {
             onPress={handleLogout}
             destructive
           />
+          <View style={styles.divider} />
+          <Row
+            testID="profile-delete-account-button"
+            Icon={Trash2}
+            label={isDeletingAccount ? 'Deleting account…' : 'Delete account'}
+            onPress={isDeletingAccount ? undefined : handleDeleteAccount}
+            destructive
+          />
         </View>
 
-        <Text style={styles.version}>v1.0.0 · OneTap365</Text>
+        <Text style={styles.version}>v{APP_VERSION} · OneTap365</Text>
       </ScrollView>
     </SafeAreaView>
   );

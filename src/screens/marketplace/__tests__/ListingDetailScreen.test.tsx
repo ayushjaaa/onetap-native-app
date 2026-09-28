@@ -340,6 +340,52 @@ describe('ListingDetailScreen', () => {
     });
   });
 
+  it('does not offer "Report this listing" on your own listing', async () => {
+    const listing = makeListing({ status: 'Live' });
+
+    const { queryByLabelText } = await renderWithProviders(
+      // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+      <ListingDetailScreen route={routeFor('l1', listing)} />,
+      { store: withSellerSession() },
+    );
+
+    expect(queryByLabelText('Report this listing')).toBeNull();
+  });
+
+  it('POSTs the chosen reason to .../report from the report sheet', async () => {
+    const listing = makeListing({ status: 'Live', sellerId: 'someone-else' });
+    mockFetchByUrl({
+      '/me/favorites': {
+        success: true,
+        data: { favorites: [], total: 0, limit: 20, skip: 0 },
+      },
+      '/report': { success: true, data: { id: 'r1', status: 'pending' } },
+    });
+
+    const { getByLabelText, getByTestId, findByTestId } =
+      await renderWithProviders(
+        // @ts-expect-error -- minimal route double, full navigation type not needed for this test
+        <ListingDetailScreen route={routeFor('l1', listing)} />,
+        { store: withSellerSession() },
+      );
+
+    await fireEvent.press(getByLabelText('Report this listing'));
+    await fireEvent.press(await findByTestId('report-reason-Scam or fraud'));
+    await fireEvent.press(getByTestId('report-submit-button'));
+
+    await waitFor(async () => {
+      const calls = (globalThis.fetch as jest.Mock).mock.calls;
+      const reportCall = calls.find((c: any[]) => {
+        const url = typeof c[0] === 'string' ? c[0] : c[0]?.url;
+        return url?.includes('/listings/l1/report');
+      });
+      expect(reportCall).toBeDefined();
+      const req = reportCall![0] as Request;
+      expect(req.method).toBe('POST');
+      expect(await req.clone().json()).toEqual({ reason: 'Scam or fraud' });
+    });
+  });
+
   // Share button is intentionally disabled (SHARE_ENABLED = false in
   // ListingDetailScreen.tsx) — no onPress is wired up, so this test's
   // premise doesn't hold. Re-enable once Share2's onPress calls handleShare.

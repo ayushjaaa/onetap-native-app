@@ -200,6 +200,17 @@ export interface GoogleSignInResponse {
   };
 }
 
+export interface DeleteAccountResponse {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: {
+    userId: string;
+    isActive: false;
+    deactivatedAt: string;
+  };
+}
+
 export type SellerType = 'individual' | 'wholesale';
 
 export interface SetSellerTypeRequest {
