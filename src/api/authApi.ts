@@ -7,6 +7,7 @@ import type {
   LoginRequest,
   LoginResponse,
   MeResponse,
+  DeleteAccountResponse,
   UpdateProfileRequest,
   UpdateProfileResponse,
   SendOtpRequest,
@@ -92,6 +93,17 @@ export const authApi = baseApi.injectEndpoints({
         body,
       }),
       invalidatesTags: ['User'],
+    }),
+
+    // Soft-deactivates immediately (every later authed request is rejected), then
+    // the backend hard-purges the account after ACCOUNT_DELETION_GRACE_DAYS.
+    // The caller must clear the local session itself once this resolves.
+    deleteAccount: builder.mutation<DeleteAccountResponse, void>({
+      query: () => ({
+        url: '/auth/account',
+        method: 'DELETE',
+      }),
+      extraOptions: { maxRetries: 0 },
     }),
 
     sendOtp: builder.mutation<SendOtpResponse, SendOtpRequest>({
@@ -195,6 +207,7 @@ export const {
   useGetMeQuery,
   useLazyGetMeQuery,
   useUpdateProfileMutation,
+  useDeleteAccountMutation,
   useSendOtpMutation,
   useResendOtpMutation,
   useVerifyOtpMutation,

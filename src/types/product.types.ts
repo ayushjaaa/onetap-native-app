@@ -202,3 +202,13 @@ export interface CreateShareLinkResponseData {
   code: string;
   url: string;
 }
+
+export interface ReportListingRequest {
+  listingId: string;
+  reason: string;
+}
+
+export interface ReportListingResponseData {
+  id: string;
+  status: 'pending' | 'resolved' | 'dismissed';
+}

@@ -41,7 +41,7 @@ import { BottomNavBar, type NavTabKey } from '@/components/marketplace';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useNotificationToasts } from '@/hooks/useNotificationToasts';
 import { resolvePostAdDestination } from '@/navigation/postAdRouter';
-import { AADHAAR_KYC_ENABLED } from '@/config/featureFlags';
+import { AADHAAR_KYC_ENABLED, CHAT_ENABLED } from '@/config/featureFlags';
 import type {
   MainStackParamList,
   MainTabParamList,
@@ -143,11 +143,15 @@ export const MainNavigator: React.FC = () => {
       <Stack.Screen name="PaymentResult" component={PaymentResultScreen} />
       <Stack.Screen name="ProductWallet" component={ProductWalletScreen} />
       <Stack.Screen name="ListProduct" component={ListAProductScreen} />
-      <Stack.Screen
-        name="ChatConversation"
-        component={ChatConversationScreen}
-      />
-      <Stack.Screen name="ChatList" component={ChatListScreen} />
+      {CHAT_ENABLED ? (
+        <>
+          <Stack.Screen
+            name="ChatConversation"
+            component={ChatConversationScreen}
+          />
+          <Stack.Screen name="ChatList" component={ChatListScreen} />
+        </>
+      ) : null}
       <Stack.Screen
         name="PurchaseHistory"
         component={BuyerPurchaseHistoryScreen}

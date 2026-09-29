@@ -5,3 +5,8 @@
 // POST /admin/kyc/:id/approve). Flip this back to `true` to route new
 // sellers through the Aadhaar step again; no other code changes needed.
 export const AADHAAR_KYC_ENABLED = false;
+
+// ChatListScreen / ChatConversationScreen still render stub data (data/chatStub.ts)
+// — no chat backend exists yet. Their routes aren't registered while this is false,
+// so no navigation path (including a stray navigate call) can show fake threads.
+export const CHAT_ENABLED = false;

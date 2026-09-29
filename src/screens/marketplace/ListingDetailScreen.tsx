@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Flag,
   Heart,
   ImageOff,
   Info,
@@ -53,7 +54,10 @@ import {
   useDeleteListingMutation,
   useCreateListingEditRequestMutation,
   useLazyRevealListingPhoneQuery,
+  useReportListingMutation,
 } from '@/api/productsApi';
+import { ReportListingSheet } from '@/components/marketplace';
+import { externalLinks } from '@/services/externalLinks';
 import { useGetReceivedInterestsQuery } from '@/api/interestsApi';
 import {
   useGetMyInterestsAsBuyerQuery,
@@ -170,6 +174,8 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
   // right after confirming) so the Sold banner can still show who it sold to.
   const [soldToName, setSoldToName] = useState<string | undefined>(undefined);
   const [buyConfirmOpen, setBuyConfirmOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportListing, { isLoading: reporting }] = useReportListingMutation();
 
   const [expressInterest, { isLoading: buyConfirming }] =
     useExpressInterestMutation();
@@ -437,6 +443,39 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
     }
   };
 
+  const handleSubmitReport = async (reason: string) => {
+    try {
+      await reportListing({ listingId: listing._id, reason }).unwrap();
+      setReportOpen(false);
+      toast.success({
+        title: 'Report submitted',
+        message: 'Thanks — our team will review this listing.',
+      });
+    } catch (err: any) {
+      // 409 = this user already has a pending report on this listing; from
+      // their side that's the outcome they wanted, so don't show it as a failure.
+      if (err?.status === 409) {
+        setReportOpen(false);
+        toast.info({
+          title: 'Already reported',
+          message: "You've already reported this listing. We're reviewing it.",
+        });
+        return;
+      }
+      toast.error({
+        title: "Couldn't submit report",
+        message: mapApiError(err as never).message,
+      });
+    }
+  };
+
+  const handleReportBug = async () => {
+    setMenuOpen(false);
+    if (!(await externalLinks.callSupport())) {
+      Alert.alert('Could not open dialer', 'Please call support manually.');
+    }
+  };
+
   const handleSellTo = (buyer: InterestedBuyer) => setSellTarget(buyer);
 
   const handleSellConfirmed = async () => {
@@ -554,6 +593,16 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
                       color={isFavorite ? colors.error : colors.white}
                       fill={isFavorite ? colors.error : 'transparent'}
                     />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setReportOpen(true)}
+                    hitSlop={spacing.md}
+                    style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Report this listing"
+                    testID="listing-detail-report-button"
+                  >
+                    <Flag size={layout.iconSize.md} color={colors.white} />
                   </Pressable>
                   {SHARE_ENABLED ? (
                     <Pressable hitSlop={spacing.md} style={styles.iconBtn}>
@@ -789,7 +838,7 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={() => setMenuOpen(false)}
+              onPress={handleReportBug}
               style={({ pressed }) => [
                 styles.menuItem,
                 pressed && styles.menuItemPressed,
@@ -927,6 +976,15 @@ export const ListingDetailScreen: React.FC<Props> = ({ route }) => {
         }}
         onConfirm={handleBuyConfirm}
       />
+
+      {!isSellerMode ? (
+        <ReportListingSheet
+          visible={reportOpen}
+          submitting={reporting}
+          onClose={() => setReportOpen(false)}
+          onSubmit={handleSubmitReport}
+        />
+      ) : null}
     </SafeAreaView>
   );
 };

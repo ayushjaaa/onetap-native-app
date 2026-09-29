@@ -14,6 +14,7 @@ import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { setCredentials } from '@/store/authSlice';
 import { secureStorage } from '@/services/secureStorage';
 import { googleAuth } from '@/services/googleAuth';
+import { externalLinks } from '@/services/externalLinks';
 import { mapApiError } from '@/utils/errorMapper';
 import { colors, spacing, typography } from '@/theme';
 import type { AuthStackParamList } from '@/types/navigation.types';
@@ -172,6 +173,26 @@ export const WelcomeScreen: React.FC = () => {
           disabled={googleBusy || googling}
         /> */}
       </View>
+
+      <Text style={styles.legal} testID="welcome-legal-text">
+        By continuing, you agree to our{' '}
+        <Text
+          style={styles.legalLink}
+          onPress={externalLinks.openTerms}
+          accessibilityRole="link"
+        >
+          Terms of Service
+        </Text>{' '}
+        and{' '}
+        <Text
+          style={styles.legalLink}
+          onPress={externalLinks.openPrivacyPolicy}
+          accessibilityRole="link"
+        >
+          Privacy Policy
+        </Text>
+        .
+      </Text>
     </Screen>
   );
 };
@@ -228,6 +249,17 @@ const styles = StyleSheet.create({
   },
   gap: {
     height: spacing.lg,
+  },
+  legal: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+  },
+  legalLink: {
+    color: colors.textPrimary,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   skipBtn: {
     alignSelf: 'center',

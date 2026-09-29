@@ -15,6 +15,8 @@ import type {
   GetTrendingSearchesParams,
   GetTrendingSearchesResponseData,
   Listing,
+  ReportListingRequest,
+  ReportListingResponseData,
   RevealPhoneResponse,
   SearchAutocompleteResponseData,
   SearchListingsParams,
@@ -203,6 +205,20 @@ export const productsApi = baseApi.injectEndpoints({
         response.data,
     }),
 
+    reportListing: builder.mutation<
+      ReportListingResponseData,
+      ReportListingRequest
+    >({
+      query: ({ listingId, reason }) => ({
+        url: `/marketplace/listings/${listingId}/report`,
+        method: 'POST',
+        body: { reason },
+      }),
+      transformResponse: (response: ApiResponse<ReportListingResponseData>) =>
+        response.data,
+      extraOptions: { maxRetries: 0 },
+    }),
+
     searchListings: builder.query<
       SearchListingsResponseData,
       SearchListingsParams
@@ -278,6 +294,7 @@ export const {
   useDeleteListingMutation,
   useCreateListingEditRequestMutation,
   useCreateShareLinkMutation,
+  useReportListingMutation,
   useSearchListingsQuery,
   useAutocompleteSearchQuery,
   useGetTrendingSearchesQuery,
